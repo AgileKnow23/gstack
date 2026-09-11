@@ -58,7 +58,7 @@ Invoke them by name (e.g., `/office-hours`).
 |-------|-------------|
 | `/context-save` | Save working context (git state, decisions, remaining work). |
 | `/context-restore` | Resume from a saved context, even across Conductor workspaces. |
-| `/icm-repo-workspace` | Give a repo a durable agent workspace: AGENTS.md router, CLAUDE.md pointer, one repo-map.yml of project facts. Validated by a cold-agent walk test. |
+| `/icm-repo-cartographer` | Map a repo for agents: AGENTS.md router, one repo-map.yml of project facts, and a generated Mermaid context map. Validated by a cold-agent walk test. |
 | `/learn` | Manage what gstack learned across sessions. |
 | `/retro` | Weekly retro with per-person breakdowns and shipping streaks. |
 | `/health` | Code quality dashboard (type checker, linter, tests, dead code). |

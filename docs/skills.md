@@ -54,7 +54,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/unfreeze`](#safety--guardrails) | **Unlock** | Remove the /freeze boundary, allowing edits everywhere again. |
 | [`/open-gstack-browser`](#open-gstack-browser) | **GStack Browser** | Launch gstack's own browser headed, with sidebar, anti-bot stealth, auto model routing, cookie import, and Claude Code integration. The visible face of the fallback engine; with Aside open you watch the agent's tabs there. |
 | [`/setup-deploy`](#setup-deploy) | **Deploy Configurator** | One-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
-| [`/icm-repo-workspace`](#icm-repo-workspace) | **Repo Librarian** | Give a repository a small, durable agent workspace: an `AGENTS.md` router under 60 lines, a `CLAUDE.md` pointer, and one `agent-work/repo-map.yml` carrying every project fact. Inspects and classifies before writing, routes by risk rather than ritual, validates with a cold-agent walk test. |
+| [`/icm-repo-cartographer`](#icm-repo-cartographer) | **Repo Cartographer** | Map a repository for agents: an `AGENTS.md` router under 60 lines, a `CLAUDE.md` pointer, one `agent-work/repo-map.yml` carrying every project fact, and a Mermaid context map generated from it. Inspects and classifies before writing, routes by risk and scope rather than ceremony, validates with a cold-agent walk test. |
 | [`/gstack-upgrade`](#gstack-upgrade) | **Self-Updater** | Upgrade gstack to the latest version. Detects global vs vendored install, syncs both, shows what changed. |
 | [`/make-pdf`](#make-pdf) | **PDF Generator** | Turn any markdown file into a publication-quality PDF. Proper margins, page numbers, cover pages, clickable TOC. Mermaid/excalidraw fences render as vector diagrams; `--to html\|docx` for other formats. Prints through your Aside browser (macOS 15+), or gstack's bundled browser when Aside is absent. |
 | [`/diagram`](#diagram) | **Diagram Maker** | English in, diagram out: mermaid source + editable `.excalidraw` (open it on excalidraw.com, hand-drawn style) + rendered SVG/PNG. Fully offline, rendered through your Aside browser (macOS 15+) or gstack's bundled browser when Aside is absent. |
@@ -1042,11 +1042,11 @@ Claude: Detected: Fly.io (fly.toml found)
 
 ---
 
-## `/icm-repo-workspace`
+## `/icm-repo-cartographer`
 
 A repository that an agent has to re-learn every session is paying the same tax
 forever. This skill leaves behind the smallest structure that stops that: a catalog
-an agent can walk cold.
+an agent can walk cold, and a map of the catalog a human can read.
 
 It is built on ICM (Interpretable Context Methodology) — folders carry sequencing,
 hierarchy carries context, files carry state — and on one borrowed design principle:
@@ -1056,7 +1056,7 @@ repository lives in one YAML file.
 
 ### What it leaves behind
 
-Six files. Two at the root, four in one folder.
+Eight files. Two at the root, six in one folder, two of those generated.
 
 ```
 AGENTS.md                              the router — under 60 lines, pointers only
@@ -1064,52 +1064,106 @@ CLAUDE.md                              a pointer to AGENTS.md, nothing else
 agent-work/
 ├─ repo-map.yml                        the project's facts — the only config file
 ├─ CONTEXT.md                          the contract: inputs, process, outputs, check
-├─ _system/skill-routing.md            which skill a change earns, by risk
-└─ _templates/task-brief.md            copy to start a unit of work
+├─ _system/skill-routing.md            how to select a skill, and why not always
+├─ _templates/task-brief.md            copy to start a unit of work
+└─ generated/
+   ├─ agent-map.md                     the readable map — GENERATED
+   └─ agent-map.mmd                    the Mermaid source — GENERATED
 ```
 
-Five of those six are byte-identical in every repository that uses the skill. Swap
+Five of the six authored files are byte-identical in every repository. Swap
 `repo-map.yml` and the same scaffold describes a different project.
+
+### The YAML is the source of truth. The map never is.
+
+`agent-work/generated/` is rendered from `repo-map.yml` by
+`bin/gstack-agent-map.ts`. Both output files lead with a banner saying so, the
+config carries `generated_map.source_of_truth: false` (and the validator refuses
+anything else), and when the two disagree the YAML wins and the map is stale.
+
+Rendering is deterministic — identical YAML produces byte-identical output, with no
+clock, no random, and no absolute paths in it. That is what makes `--check` useful:
+
+```bash
+bun run bin/gstack-agent-map.ts --config agent-work/repo-map.yml          # render
+bun run bin/gstack-agent-map.ts --config agent-work/repo-map.yml --check  # drift?
+```
+
+An invalid config exits 2 and names the field, what it found, and the edit that
+fixes it — for example:
+
+```
+gstack-agent-map: invalid config
+  repo-map.yml: contexts[crm-core].sources_of_truth — "no-such-doc" does not match
+  any sources_of_truth id. Known ids: terminology, domain-model, tenancy, decisions.
+```
+
+### What the map shows
+
+Bounded contexts and the dependencies between them, the source-of-truth document
+each context reads, protected boundaries and the gate that guards each one, the task
+routing decision path, and the human gates. An excerpt:
+
+```mermaid
+flowchart LR
+  subgraph CONTEXTS["Bounded contexts — sample-crm (composed)"]
+    ctx_crm_core["<b>crm-core</b><br/>customers, jobs, and the pipeline between them<br/><i>risk: tenant isolation</i>"]
+    ctx_tenants["<b>tenants</b><br/>tenancy, membership, and authentication<br/><i>risk: auth, tenant isolation</i>"]
+  end
+  ctx_crm_core --> ctx_tenants
+  subgraph DOCS["Source of truth"]
+    sot_tenancy[("docs/tenancy.md<br/><i>how tenant isolation is enforced at the database</i>")]
+  end
+  ctx_tenants -.reads.-> sot_tenancy
+  subgraph GATES["Human gates — an agent never clears its own"]
+    gate_deploy>"<b>deploy</b><br/>explicit user authorization, every time<br/><i>authority: user</i>"]
+  end
+  subgraph ROUTING["Task routing — by risk and scope, not ceremony"]
+    tc_release["preparing a release<br/>→ <b>/ship</b>"]
+  end
+  tc_release ==> gate_deploy
+```
 
 ### It inspects before it writes
 
 There is a hard gate before anything is created. The skill reads what is already
-there — existing entry files, the shape of the tree, the documents that already
-answer questions, the commands CI actually runs, where auth and tenancy and billing
-live, and the gates the team already respects without having written down. Then it
-classifies the repository as a **context map**, a **pipeline**, or **composed**,
-proposes the tree, and stops for your approval.
+there — existing entry files, identity and stack, bounded contexts, the documents
+that already answer questions, the commands CI actually runs, the boundaries that
+are one-way, where auth and tenancy and billing live, and the gates the team already
+respects without having written down. Then it classifies the repository as a
+**context map**, a **pipeline**, or **composed**, proposes the tree, and stops for
+your approval.
 
 If the repo already has an `AGENTS.md` with real content, it asks whether to absorb
 or replace. It never silently overwrites an entry file.
 
-### Route by risk, never by ritual
+### Route by risk and scope, never by ceremony
 
-The routing rules are the point. A one-line docs fix does not earn a review
-pipeline, and a change to tenant isolation does not skip one for being small.
+The routing table is data, in `task_classes:`. It ships with this policy:
 
-| Shape of the change | Route |
-|---|---|
-| Trivial docs or config, one domain | **No review pipeline** — and say in one line why none was needed |
-| Feature touching two or more domains | `/autoplan`, or `/plan-eng-review` for a single architectural call |
-| Broken, cause unknown | `/investigate` |
-| Code headed for a PR | `/review` |
-| Browser-visible, runnable URL exists | `/qa` (or `/qa-only` for a report without code changes) |
-| Browser-visible, no runnable URL | **Skip QA, explicitly** |
-| Hits tenant isolation, auth, billing, or an externally reachable surface | `/cso` — only on explicit request, or when the risk classification names the marker |
-| Deployment | **STOP.** Explicit user authorization, every time. Then `/land-and-deploy`. |
+| Class | When | Route |
+|---|---|---|
+| `docs-or-local-config` | documentation or local config only, one context | **no mandatory workflow** — say in one line why |
+| `cross-context-feature` | a feature, architectural change, or new capability spanning two or more contexts | `/autoplan`, or `/plan-eng-review` for a single architectural call |
+| `bug-or-failure` | something is broken or behaving unexpectedly | `/investigate` — before proposing a fix |
+| `pr-ready-implementation` | code written and headed for a PR | `/review` |
+| `browser-visible` | user-visible change **and** `commands.dev_url` is set | `/qa`, or `/qa-only` for a report without code changes |
+| `security-sensitive` | authentication, tenant isolation, billing, or an externally reachable surface | `/cso` — only when the risk classification requires it |
+| `release` | preparing a release | `/ship` may prepare a PR; **merge and deploy need explicit user authorization** |
 
-Rows add; they do not override.
+Classes add; they do not override. Only the first removes work. Running the full
+suite on a one-line change is not thoroughness — it trains people to skim the
+output, which is exactly when a real finding gets missed.
 
 ### The walk test
 
-The validation gate, and the reason to trust the result. The skill walks the
-finished workspace as an agent with no memory and proves that all four questions
-are answerable within **the entry file plus at most two more reads**:
+The validation gate. The skill walks the finished workspace as an agent with no
+memory and proves that all four questions are answerable within **`AGENTS.md` plus
+at most two more reads**:
 
 1. Where am I?
-2. What are this project's source-of-truth documents?
-3. What is the relevant command?
+2. What task route applies?
+3. Which documents and commands matter?
 4. What human gate applies?
 
 If an answer needs a third read, the structure is wrong — and the fix is to move or
@@ -1117,26 +1171,28 @@ split files, never to explain harder.
 
 ### What it will not build
 
-No scanner, no credential detector, no CI gate, no hook. The workspace describes;
-it does not enforce. That is a design decision, not an omission: routing is advice a
-human acts on, and if a rule needs enforcement that is a separate decision made
-deliberately somewhere else.
+No scanner, no credential detector, no CI gate, no forced review loop, no mandatory
+pre-push hook. The workspace describes; it does not enforce. No stage folders for
+stages that do not exist, no empty buckets, no knowledge base — this is a context
+map, not a task-management replacement. And nothing visual beyond text: the map is
+Mermaid in Markdown, with no 3D app, no image assets, and no browser dependency.
 
 It also will not restructure your repository. It adapts to the repo it finds.
 
 ```
-You:   /icm-repo-workspace
+You:   /icm-repo-cartographer
 
 Claude: Inspected 412 files across 2 levels.
         Existing entry files: CLAUDE.md (860 lines, real content — absorb or replace?)
         Form: composed — feature folders side by side, two carry ordered flows
-        Domains: crm-core, communications, billing, tenants
-        Sources of truth: CLAUDE.md, docs/domain-model.md, docs/rls-policies.md
-        Commands: npm run build / npm run test / npx playwright test / :8080
-        Gates: deploy (mandatory), migration (shared database)
-        Could not determine: lint command — leaving it out rather than guessing
+        Contexts: crm-core, communications, billing, tenants
+        Sources of truth: docs/terminology.md, docs/domain-model.md, docs/tenancy.md
+        Commands: build / test / typecheck / lint / docs / deploy, dev at :8080
+        Boundaries: protected db/migrations → migration gate
+        Gates: deploy (user authority), migration (shared database)
+        Could not determine: docs command — leaving it out rather than guessing
 
-        Proposed 6 files. Approve before I write anything?
+        Proposed 8 files. Approve before I write anything?
 ```
 
 ---
