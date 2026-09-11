@@ -54,6 +54,7 @@ Detailed guides for every gstack skill — philosophy, workflow, and examples.
 | [`/unfreeze`](#safety--guardrails) | **Unlock** | Remove the /freeze boundary, allowing edits everywhere again. |
 | [`/open-gstack-browser`](#open-gstack-browser) | **GStack Browser** | Launch gstack's own browser headed, with sidebar, anti-bot stealth, auto model routing, cookie import, and Claude Code integration. The visible face of the fallback engine; with Aside open you watch the agent's tabs there. |
 | [`/setup-deploy`](#setup-deploy) | **Deploy Configurator** | One-time setup for `/land-and-deploy`. Detects your platform, production URL, and deploy commands. |
+| [`/icm-repo-workspace`](#icm-repo-workspace) | **Repo Librarian** | Give a repository a small, durable agent workspace: an `AGENTS.md` router under 60 lines, a `CLAUDE.md` pointer, and one `agent-work/repo-map.yml` carrying every project fact. Inspects and classifies before writing, routes by risk rather than ritual, validates with a cold-agent walk test. |
 | [`/gstack-upgrade`](#gstack-upgrade) | **Self-Updater** | Upgrade gstack to the latest version. Detects global vs vendored install, syncs both, shows what changed. |
 | [`/make-pdf`](#make-pdf) | **PDF Generator** | Turn any markdown file into a publication-quality PDF. Proper margins, page numbers, cover pages, clickable TOC. Mermaid/excalidraw fences render as vector diagrams; `--to html\|docx` for other formats. Prints through your Aside browser (macOS 15+), or gstack's bundled browser when Aside is absent. |
 | [`/diagram`](#diagram) | **Diagram Maker** | English in, diagram out: mermaid source + editable `.excalidraw` (open it on excalidraw.com, hand-drawn style) + rendered SVG/PNG. Fully offline, rendered through your Aside browser (macOS 15+) or gstack's bundled browser when Aside is absent. |
@@ -1037,6 +1038,105 @@ Claude: Detected: Fly.io (fly.toml found)
         Status command: fly status
 
         Written to CLAUDE.md. Run /land-and-deploy when ready.
+```
+
+---
+
+## `/icm-repo-workspace`
+
+A repository that an agent has to re-learn every session is paying the same tax
+forever. This skill leaves behind the smallest structure that stops that: a catalog
+an agent can walk cold.
+
+It is built on ICM (Interpretable Context Methodology) — folders carry sequencing,
+hierarchy carries context, files carry state — and on one borrowed design principle:
+**one reusable engine, one project-specific configuration file.** The skill is the
+engine and is identical in every repository. Everything that differs about your
+repository lives in one YAML file.
+
+### What it leaves behind
+
+Six files. Two at the root, four in one folder.
+
+```
+AGENTS.md                              the router — under 60 lines, pointers only
+CLAUDE.md                              a pointer to AGENTS.md, nothing else
+agent-work/
+├─ repo-map.yml                        the project's facts — the only config file
+├─ CONTEXT.md                          the contract: inputs, process, outputs, check
+├─ _system/skill-routing.md            which skill a change earns, by risk
+└─ _templates/task-brief.md            copy to start a unit of work
+```
+
+Five of those six are byte-identical in every repository that uses the skill. Swap
+`repo-map.yml` and the same scaffold describes a different project.
+
+### It inspects before it writes
+
+There is a hard gate before anything is created. The skill reads what is already
+there — existing entry files, the shape of the tree, the documents that already
+answer questions, the commands CI actually runs, where auth and tenancy and billing
+live, and the gates the team already respects without having written down. Then it
+classifies the repository as a **context map**, a **pipeline**, or **composed**,
+proposes the tree, and stops for your approval.
+
+If the repo already has an `AGENTS.md` with real content, it asks whether to absorb
+or replace. It never silently overwrites an entry file.
+
+### Route by risk, never by ritual
+
+The routing rules are the point. A one-line docs fix does not earn a review
+pipeline, and a change to tenant isolation does not skip one for being small.
+
+| Shape of the change | Route |
+|---|---|
+| Trivial docs or config, one domain | **No review pipeline** — and say in one line why none was needed |
+| Feature touching two or more domains | `/autoplan`, or `/plan-eng-review` for a single architectural call |
+| Broken, cause unknown | `/investigate` |
+| Code headed for a PR | `/review` |
+| Browser-visible, runnable URL exists | `/qa` (or `/qa-only` for a report without code changes) |
+| Browser-visible, no runnable URL | **Skip QA, explicitly** |
+| Hits tenant isolation, auth, billing, or an externally reachable surface | `/cso` — only on explicit request, or when the risk classification names the marker |
+| Deployment | **STOP.** Explicit user authorization, every time. Then `/land-and-deploy`. |
+
+Rows add; they do not override.
+
+### The walk test
+
+The validation gate, and the reason to trust the result. The skill walks the
+finished workspace as an agent with no memory and proves that all four questions
+are answerable within **the entry file plus at most two more reads**:
+
+1. Where am I?
+2. What are this project's source-of-truth documents?
+3. What is the relevant command?
+4. What human gate applies?
+
+If an answer needs a third read, the structure is wrong — and the fix is to move or
+split files, never to explain harder.
+
+### What it will not build
+
+No scanner, no credential detector, no CI gate, no hook. The workspace describes;
+it does not enforce. That is a design decision, not an omission: routing is advice a
+human acts on, and if a rule needs enforcement that is a separate decision made
+deliberately somewhere else.
+
+It also will not restructure your repository. It adapts to the repo it finds.
+
+```
+You:   /icm-repo-workspace
+
+Claude: Inspected 412 files across 2 levels.
+        Existing entry files: CLAUDE.md (860 lines, real content — absorb or replace?)
+        Form: composed — feature folders side by side, two carry ordered flows
+        Domains: crm-core, communications, billing, tenants
+        Sources of truth: CLAUDE.md, docs/domain-model.md, docs/rls-policies.md
+        Commands: npm run build / npm run test / npx playwright test / :8080
+        Gates: deploy (mandatory), migration (shared database)
+        Could not determine: lint command — leaving it out rather than guessing
+
+        Proposed 6 files. Approve before I write anything?
 ```
 
 ---
