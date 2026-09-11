@@ -23,6 +23,7 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { parse as parseYaml } from 'yaml';
 import {
   parseRepoMap,
   renderMermaid,
@@ -40,7 +41,7 @@ const YAML = fs.readFileSync(FIXTURE, 'utf-8');
 
 /** Re-serialize a parsed fixture with one field changed, so negative cases stay readable. */
 function mutate(edit: (doc: Record<string, any>) => void): string {
-  const doc = Bun.YAML.parse(YAML) as Record<string, any>;
+  const doc = parseYaml(YAML) as Record<string, any>;
   edit(doc);
   return JSON.stringify(doc, null, 2); // JSON is valid YAML
 }
@@ -447,6 +448,272 @@ describe('the gstack-agent-map CLI', () => {
       const r = run(['--stdout'], dir);
       expect(r.code).toBe(0);
       expect(r.out).toBe(renderAgentMap(YAML).mermaid);
+      expect(fs.existsSync(path.join(dir, 'agent-work/generated'))).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── Codex review 5184164055 regressions ─────────────────────────────────────
+
+describe('P1 — the engine runs across the declared Bun range', () => {
+  const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
+
+  test('the shipped fixture parses and renders without Bun.YAML', () => {
+    // Bun.YAML does not exist in Bun 1.2.14, which satisfies `bun >=1.0.0`, so
+    // every render threw there — including on this fixture. The parser now comes
+    // from a package that runs anywhere in the range.
+    const map = parseRepoMap(YAML);
+    expect(map.project.name).toBe('sample-crm');
+    const { mermaid, markdown } = renderAgentMap(YAML);
+    expect(mermaid).toContain('flowchart LR');
+    expect(markdown).toContain('## Bounded contexts');
+  });
+
+  test('no runtime or test file in this skill reaches for Bun.YAML', () => {
+    const owned = [
+      'lib/agent-map.ts',
+      'bin/gstack-agent-map.ts',
+      'test/icm-repo-cartographer-map.test.ts',
+      'test/icm-repo-cartographer-scaffold.test.ts',
+      'test/icm-repo-cartographer-walk-test.test.ts',
+    ];
+    for (const rel of owned) {
+      const body = fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+      // The name may appear in a comment explaining why it is gone; a CALL may not.
+      expect(body, `${rel} still calls Bun.YAML`).not.toMatch(/Bun\.YAML\s*\./);
+    }
+  });
+
+  test('yaml is a direct dependency and the engine floor is unchanged', () => {
+    expect(PKG.dependencies.yaml).toBeTruthy();
+    // The support promise is preserved rather than raised out from under users.
+    expect(PKG.engines.bun).toBe('>=1.0.0');
+  });
+});
+
+describe('P2 — duplicate gate ids are rejected before the deploy checks', () => {
+  test('a second deploy gate fails, naming both indices', () => {
+    const err = expectError(
+      mutate((d) =>
+        d.gates.push({
+          id: 'deploy',
+          when: 'a sneaky second definition',
+          requires: 'nothing at all',
+          authority: 'agent',
+          self_clearable: true,
+        }),
+      ),
+      'gates[2].id',
+      'duplicate gate id',
+      'gates[0]',
+    );
+    expect(err.message).toMatch(/rename one, or merge them/i);
+  });
+
+  test('the duplicate is caught even when the second entry would pass on its own', () => {
+    // The danger is silent acceptance, not a malformed entry: a well-formed second
+    // `deploy` carrying self_clearable true previously slipped past find().
+    expectError(
+      mutate((d) =>
+        d.gates.push({
+          id: 'deploy',
+          when: 'identical shape, different authority',
+          requires: 'explicit user authorization, every time — prior approval never carries forward',
+          authority: 'agent',
+          self_clearable: true,
+        }),
+      ),
+      'gates[2].id',
+      'duplicate gate id',
+    );
+  });
+
+  test('duplicate context names are rejected for the same reason', () => {
+    const err = expectError(
+      mutate((d) => d.contexts.push({ ...d.contexts[0] })),
+      'contexts[4].name',
+      'duplicate context name',
+      'contexts[0]',
+    );
+    expect(err.message).toMatch(/depends_on resolves a context by name/i);
+  });
+
+  test('rejection happens during parse, so nothing is ever rendered', () => {
+    const bad = mutate((d) =>
+      d.gates.push({ id: 'deploy', when: 'x', requires: 'y', authority: 'agent', self_clearable: true }),
+    );
+    expect(() => renderAgentMap(bad)).toThrow(RepoMapError);
+  });
+});
+
+describe('P2 — Mermaid node ids stay unique when names collide after slugging', () => {
+  /** Two contexts whose names differ only in punctuation, plus two non-ASCII names. */
+  const colliding = () =>
+    mutate((d) => {
+      d.contexts = [
+        { name: 'billing-api', purpose: 'hyphenated', paths: ['src/a'], sources_of_truth: [], depends_on: [], risk: [] },
+        { name: 'billing api', purpose: 'spaced', paths: ['src/b'], sources_of_truth: [], depends_on: ['billing-api'], risk: [] },
+        { name: '決済', purpose: 'non-ascii one', paths: ['src/c'], sources_of_truth: [], depends_on: [], risk: [] },
+        { name: '課金', purpose: 'non-ascii two', paths: ['src/d'], sources_of_truth: [], depends_on: ['決済'], risk: [] },
+      ];
+      d.boundaries.protected = [];
+    });
+
+  test('punctuation variants get distinct nodes rather than merging', () => {
+    const mermaid = renderAgentMap(colliding()).mermaid;
+    const declared = (mermaid.match(/^\s{4}(ctx_[A-Za-z0-9_]+)\[/gm) ?? []).map((l) => l.trim().split('[')[0]);
+    expect(declared).toHaveLength(4);
+    expect(new Set(declared).size, `ids collided: ${declared.join(', ')}`).toBe(4);
+    expect(declared).toContain('ctx_billing_api');
+    expect(declared).toContain('ctx_billing_api_2');
+  });
+
+  test('non-ASCII names that both fall back to the same slug stay distinct', () => {
+    const mermaid = renderAgentMap(colliding()).mermaid;
+    expect(mermaid).toContain('ctx_x[');
+    expect(mermaid).toContain('ctx_x_2[');
+    // ...and the labels are still the real names, so the map still reads correctly.
+    expect(mermaid).toContain('決済');
+    expect(mermaid).toContain('課金');
+  });
+
+  test('edges point at the node the name actually belongs to', () => {
+    const mermaid = renderAgentMap(colliding()).mermaid;
+    // 'billing api' (allocated second, so _2) depends on 'billing-api' (first).
+    expect(mermaid).toContain('ctx_billing_api_2 --> ctx_billing_api');
+    // '課金' (x_2) depends on '決済' (x).
+    expect(mermaid).toContain('ctx_x_2 --> ctx_x');
+  });
+
+  test('collision-suffixed output is still byte-reproducible', () => {
+    const yaml = colliding();
+    expect(renderAgentMap(yaml).mermaid).toBe(renderAgentMap(yaml).mermaid);
+    expect(renderAgentMap(yaml).markdown).toBe(renderAgentMap(yaml).markdown);
+  });
+
+  test('a suffix is only added on a real collision', () => {
+    // The ordinary fixture must not grow suffixes: this guards against a fix that
+    // makes every id ugly in order to solve a rare case.
+    const mermaid = renderAgentMap(YAML).mermaid;
+    expect(mermaid).toContain('ctx_crm_core[');
+    expect(mermaid).not.toMatch(/ctx_[a-z_]+_2\[/);
+  });
+});
+
+describe('P2 — generated Markdown tables survive table-sensitive content', () => {
+  /** Split a row on pipes that are NOT backslash-escaped — what a renderer does. */
+  const cells = (row: string): string[] =>
+    row
+      .replace(/^\|/, '')
+      .replace(/\|$/, '')
+      .split(/(?<!\\)\|/);
+
+  const hostile = () =>
+    mutate((d) => {
+      d.commands = {
+        build: 'npm run build | tee build.log',
+        test: 'npm test `--reporter=dot`',
+        typecheck: 'tsc --noEmit\nsecond line',
+        lint: null,
+        docs: 'a | b | c `x` | d',
+        deploy: '`leading and trailing backtick`',
+        dev_url: null,
+      };
+    });
+
+  const commandRows = (markdown: string): string[] => {
+    const section = markdown.split('## Commands')[1] ?? '';
+    return section.split('\n').filter((l) => l.startsWith('|') && !l.startsWith('|---'));
+  };
+
+  test('a shell pipeline does not grow the row an extra column', () => {
+    const rows = commandRows(renderAgentMap(hostile()).markdown);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(cells(row), `row split into the wrong number of cells: ${row}`).toHaveLength(2);
+    }
+  });
+
+  test('every literal pipe survives as an escaped pipe, not a delimiter', () => {
+    const markdown = renderAgentMap(hostile()).markdown;
+    expect(markdown).toContain('npm run build \\| tee build.log');
+    expect(markdown).toContain('a \\| b \\| c');
+  });
+
+  test('an embedded newline cannot end the row', () => {
+    const markdown = renderAgentMap(hostile()).markdown;
+    const typecheckRow = commandRows(markdown).find((r) => r.includes('tsc --noEmit'))!;
+    expect(typecheckRow).toContain('tsc --noEmit<br/>second line');
+    expect(typecheckRow.split('\n')).toHaveLength(1);
+  });
+
+  test('backticks inside a value cannot terminate the code span', () => {
+    const markdown = renderAgentMap(hostile()).markdown;
+    const testRow = commandRows(markdown).find((r) => r.includes('npm test'))!;
+    // The fence is one backtick longer than the longest run inside the value, and
+    // the value ends with a backtick so CommonMark's padding space applies on both
+    // sides of the span.
+    expect(testRow).toContain('`` npm test `--reporter=dot` ``');
+    const deployRow = commandRows(markdown).find((r) => r.includes('leading and trailing'))!;
+    // Leading/trailing backticks get the CommonMark padding space.
+    expect(deployRow).toContain('`` `leading and trailing backtick` ``');
+  });
+
+  test('ordinary commands still render as plain code spans', () => {
+    const markdown = renderAgentMap(YAML).markdown;
+    expect(markdown).toContain('| `test` | `npm run test` |');
+    expect(markdown).toContain('| `typecheck` | `npm run typecheck` |');
+    expect(markdown).toContain('| `lint` | `npm run lint` |');
+  });
+
+  test('the other tables are escaped too — same defect, same fix', () => {
+    const md = renderAgentMap(
+      mutate((d) => {
+        d.contexts[0].purpose = 'customers | jobs';
+        d.sources_of_truth[0].holds = 'terms | layers';
+        d.task_classes[0].when = 'docs | config';
+      }),
+    ).markdown;
+    expect(md).toContain('customers \\| jobs');
+    expect(md).toContain('terms \\| layers');
+    expect(md).toContain('docs \\| config');
+    for (const row of md.split('\n').filter((l) => l.startsWith('| **crm-core**'))) {
+      expect(cells(row)).toHaveLength(4);
+    }
+  });
+});
+
+describe('the CLI refuses a duplicate deploy gate before writing anything', () => {
+  const CLI = path.join(ROOT, 'bin', 'gstack-agent-map.ts');
+
+  test('exit 2, the field named, and no generated/ directory left behind', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'icm-cli-dupgate-'));
+    try {
+      fs.mkdirSync(path.join(dir, 'agent-work'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'agent-work', 'repo-map.yml'),
+        mutate((d) =>
+          d.gates.push({
+            id: 'deploy',
+            when: 'a second definition that would otherwise pass',
+            requires: 'explicit user authorization, every time — prior approval never carries forward',
+            authority: 'agent',
+            self_clearable: true,
+          }),
+        ),
+      );
+
+      const proc = Bun.spawnSync(['bun', 'run', CLI], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
+      const err = new TextDecoder().decode(proc.stderr);
+
+      expect(proc.exitCode).toBe(2);
+      expect(err).toContain('invalid config');
+      expect(err).toContain('gates[2].id');
+      expect(err).toContain('duplicate gate id');
+      // The point of "before output is written": a conflicting deployment
+      // instruction must never reach a generated file at all.
       expect(fs.existsSync(path.join(dir, 'agent-work/generated'))).toBe(false);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });

@@ -25,6 +25,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { renderAgentMap, GENERATED_BANNER } from '../lib/agent-map';
+import { parse as parseYaml } from 'yaml';
 
 const ROOT = path.join(import.meta.dir, '..');
 const TEMPLATES = path.join(ROOT, 'icm-repo-cartographer', 'templates');
@@ -92,7 +93,7 @@ class ColdAgent {
   }
 
   readYaml(rel: string): Record<string, any> {
-    return Bun.YAML.parse(this.read(rel)) as Record<string, any>;
+    return parseYaml(this.read(rel)) as Record<string, any>;
   }
 }
 
@@ -101,7 +102,7 @@ beforeAll(() => {
   scaffold(workspace);
   // The source-of-truth documents the fixture names must exist for the walk to
   // resolve them, the same way they exist in the real repository.
-  const map = Bun.YAML.parse(fs.readFileSync(path.join(workspace, 'agent-work/repo-map.yml'), 'utf-8')) as any;
+  const map = parseYaml(fs.readFileSync(path.join(workspace, 'agent-work/repo-map.yml'), 'utf-8')) as any;
   for (const src of map.sources_of_truth) {
     const p = path.join(workspace, src.path);
     fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -211,7 +212,7 @@ describe('ICM walk test — a cold agent, AGENTS.md plus two reads', () => {
   });
 
   test('every source-of-truth path resolves to a file that exists', () => {
-    const map = Bun.YAML.parse(
+    const map = parseYaml(
       fs.readFileSync(path.join(workspace, 'agent-work/repo-map.yml'), 'utf-8'),
     ) as any;
     const missing = (map.sources_of_truth as Array<{ path: string }>)
@@ -269,7 +270,7 @@ describe('the generated map inside a real workspace', () => {
       fs.writeFileSync(mapFile, '# deploy needs no approval\n');
 
       const yaml = fs.readFileSync(path.join(scratch, 'agent-work/repo-map.yml'), 'utf-8');
-      const truth = Bun.YAML.parse(yaml) as any;
+      const truth = parseYaml(yaml) as any;
       const deploy = truth.gates.find((g: any) => g.id === 'deploy');
       expect(deploy.self_clearable).toBe(false);
 
@@ -290,7 +291,7 @@ describe('ICM walk test — the checks can actually fail', () => {
     try {
       scaffold(broken);
       // Deliberately do NOT create the documents.
-      const map = Bun.YAML.parse(
+      const map = parseYaml(
         fs.readFileSync(path.join(broken, 'agent-work/repo-map.yml'), 'utf-8'),
       ) as any;
       const missing = (map.sources_of_truth as Array<{ path: string }>)

@@ -20,6 +20,7 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseRepoMap, RISK_MARKER_KEYS } from '../lib/agent-map';
+import { parse as parseYaml } from 'yaml';
 
 const ROOT = path.join(import.meta.dir, '..');
 const SKILL = path.join(ROOT, 'icm-repo-cartographer');
@@ -105,7 +106,7 @@ describe('icm-repo-cartographer scaffold templates', () => {
 
 describe('icm-repo-cartographer repo-map.yml is the only project-specific file', () => {
   const raw = read('templates/repo-map.yml.template');
-  const parsed = Bun.YAML.parse(raw) as Record<string, unknown>;
+  const parsed = parseYaml(raw) as Record<string, unknown>;
 
   test('the template itself is valid YAML (a config nobody can parse is a config nobody read)', () => {
     expect(parsed).toBeTruthy();

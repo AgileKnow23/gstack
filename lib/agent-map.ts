@@ -13,7 +13,16 @@
  * Validation is fail-loud and actionable: every error names the field path, what
  * was found, and the edit that fixes it. A config file that fails with "invalid
  * input" teaches nobody anything.
+ *
+ * YAML is parsed with the `yaml` package rather than `Bun.YAML`. The latter does
+ * not exist in Bun 1.2.14, which satisfies this package's declared `bun >=1.0.0`
+ * engine range, so every render would have thrown there — including on the shipped
+ * fixture. `yaml` is pure JS with no transitive dependencies and runs on anything
+ * in the supported range, which keeps the support promise intact without raising
+ * the engine floor.
  */
+
+import { parse as parseYamlText } from 'yaml';
 
 export const REPO_MAP_SCHEMA = 'icm-repo-cartographer/v1';
 
@@ -135,7 +144,7 @@ function describe(value: unknown): string {
 export function parseRepoMap(text: string): RepoMap {
   let raw: unknown;
   try {
-    raw = Bun.YAML.parse(text);
+    raw = parseYamlText(text);
   } catch (err) {
     fail('(whole file)', `not valid YAML — ${(err as Error).message}. Fix the syntax, then re-run the map generator.`);
   }
@@ -238,6 +247,24 @@ export function parseRepoMap(text: string): RepoMap {
       self_clearable: e.self_clearable as boolean,
     };
   });
+  // Duplicates FIRST. A Set would silently collapse two `deploy` entries and the
+  // find() below would validate only the first, so a second one could carry
+  // `authority: agent` or `self_clearable: true` and still parse. The YAML and the
+  // generated map would then disagree about who may deploy, with no way to tell
+  // which gate applies.
+  const firstGateIndexById = new Map<string, number>();
+  gates.forEach((gate, i) => {
+    const seen = firstGateIndexById.get(gate.id);
+    if (seen !== undefined) {
+      fail(
+        `gates[${i}].id`,
+        `duplicate gate id "${gate.id}", already defined at gates[${seen}]. Gate ids must be unique — ` +
+          `task classes and protected boundaries resolve a gate by id, and two entries sharing one id ` +
+          `make the answer ambiguous. Rename one, or merge them.`,
+      );
+    }
+    firstGateIndexById.set(gate.id, i);
+  });
   const gateIds = new Set(gates.map((g) => g.id));
   const deploy = gates.find((g) => g.id === 'deploy');
   if (!deploy) {
@@ -274,6 +301,21 @@ export function parseRepoMap(text: string): RepoMap {
       depends_on: requireStringList(e.depends_on, `${at}.depends_on`, 'Other context names.'),
       risk: requireStringList(e.risk, `${at}.risk`, `Any of: ${RISK_MARKER_KEYS.join(', ')}.`),
     };
+  });
+  // Same reasoning as the gates: `depends_on` resolves a context by name, and the
+  // map allocates one node per name. Two contexts sharing a name would merge in
+  // both places rather than fail.
+  const firstContextIndexByName = new Map<string, number>();
+  contexts.forEach((ctx, i) => {
+    const seen = firstContextIndexByName.get(ctx.name);
+    if (seen !== undefined) {
+      fail(
+        `contexts[${i}].name`,
+        `duplicate context name "${ctx.name}", already defined at contexts[${seen}]. ` +
+          `Names must be unique — depends_on resolves a context by name.`,
+      );
+    }
+    firstContextIndexByName.set(ctx.name, i);
   });
   const contextNames = new Set(contexts.map((c) => c.name));
   for (const ctx of contexts) {
@@ -436,13 +478,76 @@ export function parseRepoMap(text: string): RepoMap {
   };
 }
 
-/** Mermaid node ids must be identifier-safe and stable for the same input. */
-function nodeId(prefix: string, value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-  return `${prefix}_${slug || 'x'}`;
+function slugify(value: string): string {
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '') || 'x'
+  );
+}
+
+/**
+ * Allocates Mermaid node ids that are identifier-safe, stable, and unique.
+ *
+ * Slugging is lossy: `billing-api` and `billing api` both become `billing_api`,
+ * and any two names with no ASCII alphanumerics both fall back to `x`. Those are
+ * legitimately different contexts, so rejecting them would refuse a valid config —
+ * instead the second one to be allocated gets a `_2` suffix, the third `_3`, and
+ * so on. Mermaid then draws two nodes rather than silently merging their
+ * declarations and edges into one, which would have misrepresented the repository.
+ *
+ * Ids are allocated in a single up-front pass in declaration order, so the suffix
+ * a name receives depends only on the config — not on the order the renderer
+ * happens to emit sections in. Same YAML, byte-identical output.
+ */
+class NodeIds {
+  // Nested by prefix so a value can never collide with a composed key, whatever
+  // separator a name happens to contain.
+  private readonly assigned = new Map<string, Map<string, string>>();
+  private readonly taken = new Set<string>();
+
+  /** Reserve an id for `value` under `prefix`. Idempotent: same key, same id. */
+  allocate(prefix: string, value: string): string {
+    const bucket = this.assigned.get(prefix) ?? new Map<string, string>();
+    this.assigned.set(prefix, bucket);
+    const existing = bucket.get(value);
+    if (existing) return existing;
+
+    const base = `${prefix}_${slugify(value)}`;
+    let candidate = base;
+    for (let n = 2; this.taken.has(candidate); n++) candidate = `${base}_${n}`;
+
+    bucket.set(value, candidate);
+    this.taken.add(candidate);
+    return candidate;
+  }
+
+  /** Look up an already-allocated id. Throws rather than inventing a dangling node. */
+  get(prefix: string, value: string): string {
+    const id = this.assigned.get(prefix)?.get(value);
+    if (!id) {
+      throw new RepoMapError(
+        `${prefix}[${value}]`,
+        `internal: no Mermaid node was allocated for this reference. This is a renderer bug, not a config error.`,
+      );
+    }
+    return id;
+  }
+}
+
+/**
+ * One deterministic pass over the config, in declaration order, before anything is
+ * emitted. Every later lookup is a hit.
+ */
+function allocateNodeIds(map: RepoMap): NodeIds {
+  const ids = new NodeIds();
+  for (const ctx of map.contexts) ids.allocate('ctx', ctx.name);
+  for (const doc of map.sources_of_truth) ids.allocate('sot', doc.id);
+  for (const gate of map.gates) ids.allocate('gate', gate.id);
+  map.boundaries.protected.forEach((_, i) => ids.allocate('prot', String(i)));
+  for (const tc of map.task_classes) ids.allocate('tc', tc.id);
+  return ids;
 }
 
 /** Mermaid labels live inside quotes; strip what would break the quoting. */
@@ -464,6 +569,10 @@ const RISK_LABEL: Record<string, string> = {
 export function renderMermaid(map: RepoMap): string {
   const out: string[] = [];
   const dir = map.generated_map.direction;
+  // Allocated in one deterministic pass before anything is emitted, so two names
+  // that slug to the same string get distinct nodes instead of silently merging.
+  const ids = allocateNodeIds(map);
+  const nodeId = (prefix: string, value: string) => ids.get(prefix, value);
 
   out.push(`%% ${GENERATED_BANNER}`);
   out.push(`%% schema: ${map.schema}`);
@@ -551,8 +660,35 @@ export function renderMermaid(map: RepoMap): string {
   return out.join('\n') + '\n';
 }
 
+/**
+ * Make an arbitrary string safe inside a Markdown table cell.
+ *
+ * A raw `|` is read as a column delimiter even inside a code span, so a command
+ * like `npm test | tee results.log` silently grows the row an extra column. A
+ * newline ends the row outright. GFM's escape (`\\|`) works in both contexts, so
+ * escape rather than strip — the reader still sees the real command.
+ */
+function tableCell(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/\|/g, '\\|')
+    .replace(/\r\n|\r|\n/g, '<br/>');
+}
+
+/**
+ * Wrap a value in a code span that its own backticks cannot terminate: the fence
+ * is one backtick longer than the longest run inside, and a value that starts or
+ * ends with a backtick gets a padding space, exactly as CommonMark prescribes.
+ */
+function codeCell(text: string): string {
+  const longestRun = (text.match(/`+/g) ?? []).reduce((max, run) => Math.max(max, run.length), 0);
+  const fence = '`'.repeat(longestRun + 1);
+  const pad = text.startsWith('`') || text.endsWith('`') ? ' ' : '';
+  return `${fence}${pad}${tableCell(text)}${pad}${fence}`;
+}
+
 const commandRow = (key: string, value: string | null): string =>
-  `| \`${key}\` | ${value ? `\`${value}\`` : '_not set_'} |`;
+  `| ${codeCell(key)} | ${value ? codeCell(value) : '_not set_'} |`;
 
 /**
  * Render the readable map page. Leads with the banner so a reader who arrives
@@ -587,7 +723,7 @@ export function renderMarkdown(map: RepoMap, mermaid: string): string {
   for (const ctx of map.contexts) {
     const risks = ctx.risk.map((r) => RISK_LABEL[r] ?? r).join(', ') || '—';
     out.push(
-      `| **${ctx.name}** | ${ctx.purpose} | ${ctx.paths.map((p) => `\`${p}\``).join(', ')} | ${risks} |`,
+      `| **${tableCell(ctx.name)}** | ${tableCell(ctx.purpose)} | ${ctx.paths.map((p) => codeCell(p)).join(', ')} | ${tableCell(risks)} |`,
     );
   }
   out.push('');
@@ -597,7 +733,7 @@ export function renderMarkdown(map: RepoMap, mermaid: string): string {
   out.push('| Document | Holds | Read when |');
   out.push('|---|---|---|');
   for (const doc of map.sources_of_truth) {
-    out.push(`| \`${doc.path}\` | ${doc.holds} | ${doc.read_when} |`);
+    out.push(`| ${codeCell(doc.path)} | ${tableCell(doc.holds)} | ${tableCell(doc.read_when)} |`);
   }
   out.push('');
 
@@ -607,7 +743,7 @@ export function renderMarkdown(map: RepoMap, mermaid: string): string {
     out.push('| Paths | Why | Gate |');
     out.push('|---|---|---|');
     for (const b of map.boundaries.protected) {
-      out.push(`| ${b.paths.map((p) => `\`${p}\``).join(', ')} | ${b.why} | **${b.gate}** |`);
+      out.push(`| ${b.paths.map((p) => codeCell(p)).join(', ')} | ${tableCell(b.why)} | **${tableCell(b.gate)}** |`);
     }
     out.push('');
   }
@@ -619,16 +755,19 @@ export function renderMarkdown(map: RepoMap, mermaid: string): string {
   out.push('| When | Route | Gate |');
   out.push('|---|---|---|');
   for (const tc of map.task_classes) {
-    const route = tc.skill ? `\`${tc.skill}\`` : '_no mandatory workflow_';
-    const note = tc.note ? `<br/><sub>${tc.note}</sub>` : '';
-    out.push(`| ${tc.when}${note} | ${route} | ${tc.gate ? `**${tc.gate}**` : '—'} |`);
+    const route = tc.skill ? codeCell(tc.skill) : '_no mandatory workflow_';
+    const note = tc.note ? `<br/><sub>${tableCell(tc.note)}</sub>` : '';
+    out.push(`| ${tableCell(tc.when)}${note} | ${route} | ${tc.gate ? `**${tableCell(tc.gate)}**` : '—'} |`);
   }
   out.push('');
 
   out.push('## Human gates');
   out.push('');
   for (const gate of map.gates) {
-    out.push(`- **${gate.id}** — ${gate.when}. Requires: ${gate.requires} Authority: **${gate.authority}**.`);
+    // Not a table, but the same content, so keep newlines from breaking the list item.
+    out.push(
+      `- **${tableCell(gate.id)}** — ${tableCell(gate.when)}. Requires: ${tableCell(gate.requires)} Authority: **${tableCell(gate.authority)}**.`,
+    );
   }
   out.push('');
 
