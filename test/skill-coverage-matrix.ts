@@ -195,6 +195,16 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   skillify: { gate: ['test/skill-e2e-skillify.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   learn: { gate: ['test/skill-e2e-learnings.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'plan-tune': { gate: ['test/skill-e2e-plan-tune.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
+  'icm-repo-workspace': {
+    gate: [
+      'test/icm-repo-workspace-scaffold.test.ts',
+      'test/icm-repo-workspace-walk-test.test.ts',
+      'test/skill-coverage-floor.test.ts',
+    ],
+    periodic: [],
+    rationale:
+      'Both dedicated suites are free and hermetic — the walk test materializes a workspace in a temp dir and walks it as a cold agent counting reads — so the behavior that actually matters (router under 60 lines, CLAUDE.md a pointer, repo-map.yml the only project-specific file, four answers within entry + two reads) is CI-blocking at no per-run cost. Nothing here needs an LLM, so there is no periodic tier.',
+  },
 
   // ─── iOS family ─────────────────────────────────────────────
   'ios-qa': { gate: ['test/skill-e2e-ios.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: ['test/skill-e2e-ios-device.test.ts', 'test/skill-e2e-ios-swift-build.test.ts'] },
