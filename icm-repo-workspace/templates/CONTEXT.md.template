@@ -1,0 +1,43 @@
+# agent-work — the repository's agent adapter
+
+One job: tell an agent where it is, what is true about this project, and how much
+process a given change earns.
+
+## Inputs
+
+- Working (every task): `repo-map.yml` — the project's facts
+- Reference (every task): `_system/skill-routing.md` — the risk-to-skill rules
+- Reference (on demand): whatever `sources_of_truth:` in `repo-map.yml` points at,
+  and only the entry whose `read_when:` the current task actually matches
+
+Do NOT load: the whole `docs/` tree, every file under a domain's `paths:`, or task
+briefs other than the one you are working on. Loading the map is not the same as
+walking the building.
+
+## Process
+
+1. **Read `repo-map.yml`.** Which `domains:` does the change touch? Does it hit any
+   `risk_markers:`? Write both answers down before you form an opinion about effort.
+2. **Apply `_system/skill-routing.md`** to that classification. It names a skill, or
+   it names none. "None" is a real answer and the most common one.
+3. **Copy `_templates/task-brief.md`** and fill it in. Classification and route go in
+   the brief before the work starts, not after.
+4. **Do the work**, stopping at every gate the rules named.
+
+## Outputs
+
+- A filled task brief. This workspace does not mandate where briefs live — put them
+  where this project already keeps working notes, and say where in the brief itself.
+- The change, in the repository.
+
+## Human check
+
+Read the brief before the work starts. The classification, the route, and the gates
+must all be things you agree with. Correcting the route here costs a sentence;
+correcting it after the work costs the work.
+
+## What lives here, and what does not
+
+This folder holds the adapter and nothing else. It carries no project documentation
+of its own — `repo-map.yml` points at where each fact already lives. When a fact
+starts existing in two places, delete one and leave a pointer.

@@ -1,0 +1,12 @@
+# {REPO_NAME}
+
+Read [AGENTS.md](AGENTS.md). It is the entry file for this repository and the only
+routing document.
+
+This file exists because some agents look for `CLAUDE.md` first. It is a pointer,
+not a second copy. If you find yourself adding content here, it belongs in
+`AGENTS.md`, in `agent-work/repo-map.yml`, or in the document `repo-map.yml`
+already points at.
+
+Two entry files that both carry content will drift, and the day they disagree
+neither one is trustworthy. One home per fact.

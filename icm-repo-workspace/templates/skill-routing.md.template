@@ -1,0 +1,48 @@
+# Skill routing — by risk, never by ritual
+
+How much process a change earns is a function of what the change can break, not of
+how the work feels or how long it took. This file is the rule. `repo-map.yml` holds
+the project facts the rule reads.
+
+Classify first — which `domains:` does the change touch, and which `risk_markers:`
+does it hit — then read the row. Do not pick a row because it sounds thorough.
+
+## The rules
+
+| Shape of the change | Route to | Why this and not more |
+|---|---|---|
+| **Trivial docs or config**, one domain, no runtime behaviour change | **No review pipeline.** Make the change and say in one line why it needed none. | A review pipeline on a typo teaches everyone that pipelines are theatre. |
+| **Feature touching two or more `domains:`** | **Planning skill** (`/autoplan`, or `/plan-eng-review` for a single architectural call) | Cross-domain is where the hidden assumption lives. Plan before code, once. |
+| **Something is broken and the cause is unknown** | **`/investigate`** | No fixes without a root cause. A fix aimed at a symptom is a second bug. |
+| **Code is written and headed for a PR** | **`/review`** | The bugs that pass CI are the ones worth catching here. |
+| **Browser-visible change** AND `commands.dev_url` is set | **`/qa`** (`/qa-only` when no code changes are wanted) | Eyes on the actual page. |
+| **Browser-visible change** and `commands.dev_url` is null | **Skip QA.** Say so explicitly. | QA without a runnable URL is a transcript of good intentions. |
+| Change hits `tenant_isolation`, `auth`, `billing`, or `externally_reachable` | **`/cso`** — but only when the user explicitly asks for it, or the risk classification names one of these markers | Security review is expensive and it is not decoration. Run it when the surface is real. |
+| **Deployment, release, or production configuration** | **STOP. Explicit user authorization, every time.** Only after that, `/land-and-deploy`. | Approval for one deploy never carries forward to the next. |
+
+## How the rows combine
+
+A change can match several rows. Take every row it matches — they add, they do not
+override. A cross-domain feature that touches auth and ships to production is
+planning **and** security **and** the deploy gate, in that order.
+
+The only row that removes work is the first one, and it only applies when nothing
+else matches.
+
+## What "explicitly requested" means
+
+For `/cso`: the user asked for a security review, in words. An agent deciding on
+its own that a change felt security-adjacent is not a request. The other trigger —
+the risk classification naming a marker — is not a judgment call either: it is a
+lookup against `risk_markers:` in `repo-map.yml`.
+
+## What this file will not do
+
+It does not add a scanner, a credential detector, a CI gate, or a hook. Routing is
+advice that a human acts on, not a mechanism that blocks a human. If a rule here
+needs enforcement, that is a separate decision, made deliberately, somewhere else.
+
+## Project deviations
+
+Deviations live in `routing_overrides:` in `repo-map.yml`, each with a reason. An
+override without a reason is ritual wearing the costume of judgment — delete it.

@@ -1,0 +1,47 @@
+# {REPO_NAME} — agent entry
+
+{ONE_SENTENCE_WHAT_THIS_REPO_IS_AND_WHAT_SHIPS_OUT_OF_IT}
+
+This repository carries an ICM agent workspace. This file is the catalog: it points
+at everything and stores almost nothing. Read what the task needs, not the whole map.
+
+## Where things live
+
+| Path | What it holds |
+|---|---|
+| `agent-work/repo-map.yml` | **The project's facts.** Domains, source-of-truth docs, commands, gates, risk markers. Read this first, every time. |
+| `agent-work/CONTEXT.md` | The contract for working here: inputs, process, outputs, human check. |
+| `agent-work/_system/skill-routing.md` | Which skill a change earns, by risk. |
+| `agent-work/_templates/task-brief.md` | Copy to start a unit of work. New work is a copy, never a blank page. |
+
+Project documentation is listed under `sources_of_truth:` in `repo-map.yml`. That
+list is the only place those paths are recorded — do not restate them here.
+
+## Route by what you were asked to do
+
+| If the task is | Go to | Stop at |
+|---|---|---|
+| anything at all, first | `agent-work/repo-map.yml` | — |
+| deciding how much process a change earns | `agent-work/_system/skill-routing.md` | the gate that rule names |
+| starting a unit of work | copy `agent-work/_templates/task-brief.md` | a human reads the brief |
+| running something | `commands:` in `repo-map.yml` | — |
+| reporting status | scan git state against `gates:` in `repo-map.yml` | report what is true, not what is hoped |
+
+## The gates
+
+Gates live in `repo-map.yml` under `gates:`. They are not advisory, and an agent
+does not clear its own gate.
+
+**Deployment requires explicit authorization from the user, every time.** Approval
+for one deploy never carries forward to the next.
+
+## The one rule
+
+**Route by risk, never by ritual.** A one-line docs fix does not earn a review
+pipeline. A change to tenant isolation does not skip one for being small.
+
+## When this file is wrong
+
+If reality and this router disagree, reality wins — fix the router or fix
+`repo-map.yml` in the same change that proved it stale. A catalog nobody trusts is
+worse than no catalog.

@@ -1,0 +1,51 @@
+# Task brief — {ONE LINE: what this task is}
+
+Copy this file to start a unit of work. Fill it in before writing code, not after.
+The brief is the human gate: someone reads it and disagrees cheaply, or agrees and
+the work proceeds with the route already settled.
+
+**Date:** {YYYY-MM-DD}
+**Brief lives at:** {where you saved this copy}
+
+## Outcome
+
+{One sentence. What is true when this is done that is not true now.}
+
+## Classification
+
+Read `agent-work/repo-map.yml` and answer both. Do not skip to the route.
+
+- **Domains touched:** {names from `domains:`, or "none — no source change"}
+- **Risk markers hit:** {keys from `risk_markers:`, or "none"}
+- **Runnable URL available:** {`commands.dev_url`, or "none"}
+
+## Route
+
+From `agent-work/_system/skill-routing.md`. List every row that matches — they add.
+
+- {skill or "no review pipeline"} — because {which row, and why it applies}
+
+## Gates
+
+From `gates:` in `repo-map.yml`. Name each one that this task will reach.
+
+- {gate id} — {what must happen, and who clears it}
+
+Deployment, if this task reaches it, needs explicit authorization from the user at
+the moment of deploying. Nothing above pre-clears it.
+
+## Not in scope
+
+{The nearby work this task is deliberately not doing. Being specific here is what
+stops the task from growing while nobody is looking.}
+
+## Verification
+
+{How you will know it worked — the command, the URL, the assertion. "Looks right"
+is not on this list.}
+
+## Result
+
+{Filled in at the end: what shipped, what was verified, what was left tracked and
+why. If something was skipped, say so here rather than leaving the reader to
+notice.}
