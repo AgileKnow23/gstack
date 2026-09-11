@@ -1,8 +1,8 @@
 ---
-name: icm-repo-workspace
+name: icm-repo-cartographer
 preamble-tier: 3
 version: 0.1.0
-description: "Scaffold a durable ICM agent workspace in a repo: AGENTS.md router, CLAUDE.md pointer, one repo-map.yml of project facts. (gstack)"
+description: "Map a repository for agents: an AGENTS.md router, one repo-map.yml of project facts, and a generated Mermaid context map. (gstack)"
 allowed-tools:
   - Bash
   - Read
@@ -12,9 +12,9 @@ allowed-tools:
   - Glob
   - AskUserQuestion
 triggers:
+  - map this repo for agents
   - set up an agent workspace
   - make this repo agent-ready
-  - add an agents.md router
   - give this repo a repo map
   - icm this repo
 ---
@@ -24,17 +24,18 @@ triggers:
 
 ## When to invoke this skill
 
-Inspects and classifies the repository before writing anything, then scaffolds the
-minimum adapter and validates it with a cold-agent walk test.
-Use when asked to "set up an agent workspace", "add AGENTS.md", "make this repo
-agent-ready", "give this repo a repo map", or "ICM this repo".
+Inspects and classifies the repository before writing anything, scaffolds a
+bounded eight-file adapter, renders the map from the YAML, and validates the
+result with a cold-agent walk test.
+Use when asked to "map this repo for agents", "set up an agent workspace",
+"add AGENTS.md", "give this repo a repo map", or "ICM this repo".
 
 ## Preamble (run first)
 
 ```bash
 _SS="$HOME/.claude/skills/gstack/bin/gstack-skill-start"
 [ -x "$_SS" ] || _SS=".claude/skills/gstack/bin/gstack-skill-start"
-"$_SS" --skill "icm-repo-workspace" --model "claude" --parent-pid "$PPID" \
+"$_SS" --skill "icm-repo-cartographer" --model "claude" --parent-pid "$PPID" \
   || echo "SKILL_START: unavailable — stale install; run ./setup or /gstack-upgrade (preamble degraded, continue the user's task)"
 ```
 
@@ -334,7 +335,7 @@ Before each AskUserQuestion, choose `question_id` from `~/.claude/skills/gstack/
 
 After answer, log best-effort (PostToolUse hook also captures deterministically when installed; dedup on (source, tool_use_id) handles double-writes). Substitute `SESSION_ID` with the value the preamble's skill-start output echoed — shell variables do not survive between Bash calls:
 ```bash
-~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"icm-repo-workspace","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"SESSION_ID"}' 2>/dev/null || true
+~/.claude/skills/gstack/bin/gstack-question-log '{"skill":"icm-repo-cartographer","question_id":"<id>","question_summary":"<short>","category":"<approval|clarification|routing|cherry-pick|feedback-loop>","door_type":"<one-way|two-way>","options_count":N,"user_choice":"<key>","recommended":"<key>","session_id":"SESSION_ID"}' 2>/dev/null || true
 ```
 
 For two-way questions, offer: "Tune this question? Reply `tune: never-ask`, `tune: always-ask`, or free-form."
@@ -413,7 +414,7 @@ preamble's skill-start output echoed. It also drains the artifacts-sync queue
 `~/.gstack/analytics/`, matching preamble analytics writes.
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-skill-end --skill "icm-repo-workspace" --outcome OUTCOME \
+~/.claude/skills/gstack/bin/gstack-skill-end --skill "icm-repo-cartographer" --outcome OUTCOME \
   --session-id "SESSION_ID" --tel-start "TEL_START" --used-browse USED_BROWSE \
   --error-message "ERROR_MESSAGE" --failed-step "FAILED_STEP" 2>/dev/null || true
 ```
@@ -427,21 +428,25 @@ telemetry — it never blocks the workflow.
 
 Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXIT PLAN MODE GATE blocking checklist at the end of the skill, which verifies the plan file ends with `## GSTACK REVIEW REPORT` before ExitPlanMode is called. Skills that don't run plan reviews (operational skills like `/ship`, `/qa`, `/review`) typically don't operate in plan mode and have no review report to verify; this footer is a no-op for them. Writing the plan file is the one edit allowed in plan mode.
 
-# /icm-repo-workspace — Give a Repo a Durable Agent Workspace
+# /icm-repo-cartographer — Map a Repo for Agents
 
-You are a **librarian who refuses to photocopy the library**. Your job is to leave
-behind the smallest structure that lets a cold agent — no memory, no prior session —
-arrive in this repository and know where it is, what is true, which command to run,
-and which gate it must not walk through.
+You are a **cartographer who refuses to photocopy the territory**. Your job is to
+leave behind the smallest structure that lets a cold agent — no memory, no prior
+session — arrive in this repository and know where it is, what is true, which
+command to run, and which gate it must not walk through.
 
-You build a **catalog, not a copy**. The catalog is small on purpose. Project facts
-live in exactly one place each, and the workspace points at them.
+You build a **catalog and a map of it, not a copy of the repo**. The catalog is
+small on purpose, and every project fact has exactly one home.
 
 **One reusable engine, one project-specific configuration file.** This skill is the
 engine and is identical in every repository. Everything that differs about this
 repository goes in `agent-work/repo-map.yml` and nowhere else. When you feel the
-urge to write a project fact into the router, the routing rules, or the contract —
-that is the configuration file asking for it.
+urge to write a project fact into the router, the routing prose, or the map — that
+is the configuration file asking for it.
+
+**The map is a view, never a source of truth.** `agent-work/generated/` is rendered
+from the YAML. When they disagree, the YAML wins and the map is stale. Never edit
+the generated files, and never cite the map as the reason something is true.
 
 **HARD GATE:** do not write a single file before Phase 3 is approved. Inspection is
 not a formality you narrate on the way to scaffolding; it is how you find out that
@@ -451,32 +456,40 @@ the repo already has an `AGENTS.md` you were about to overwrite.
 
 ## What this builds
 
-Six files. Two at the root, four in one folder.
+Eight files. Two at the root, six in one folder, two of those generated.
 
 ```
-AGENTS.md                              the router — under 60 lines, no content
+AGENTS.md                              the router — under 60 lines, pointers only
 CLAUDE.md                              a pointer to AGENTS.md, nothing else
 agent-work/
 ├─ repo-map.yml                        the project's facts — the only config file
 ├─ CONTEXT.md                          the contract: inputs, process, outputs, check
-├─ _system/skill-routing.md            which skill a change earns, by risk
-└─ _templates/task-brief.md            copy to start a unit of work
+├─ _system/skill-routing.md            how to select a skill, and why not always
+├─ _templates/task-brief.md            copy to start a unit of work
+└─ generated/
+   ├─ agent-map.md                     the readable map — GENERATED
+   └─ agent-map.mmd                    the Mermaid source — GENERATED
 ```
 
-Starters live in `icm-repo-workspace/templates/`. Copy and fill them; do not
-compose these files from memory, and do not add a seventh.
+Starters live in `icm-repo-cartographer/templates/`. Copy and fill them; do not
+compose these files from memory, and do not add a ninth.
 
 ## What this refuses to build
 
-- **A scanner, a credential detector, a CI gate, or a hook.** Routing is advice a
-  human acts on, not a mechanism that blocks one. If enforcement is wanted, that is
-  a separate decision made somewhere else, deliberately.
+- **A scanner, a credential detector, a CI gate, a forced review loop, or a
+  mandatory pre-push hook.** Routing is advice a human acts on, not a mechanism
+  that blocks one. If enforcement is wanted, that is a separate decision made
+  somewhere else, deliberately.
+- **Speculative structure.** No stage folders for stages that do not exist, no
+  empty buckets, no knowledge base. This is a context map, not a task-management
+  replacement.
 - **A restructuring of the repository.** This skill adapts to the repo it finds.
-  Moving the repo's own folders into ICM shape is a different job with its own
-  approval.
-- **Speculative depth.** No folder for a stage that does not exist, no "misc"
-  bucket, no domain nobody named out loud.
-- **A second copy of anything.** If a fact is already written down in this repo, the
+  Moving the repo's own folders is a different job with its own approval.
+- **Anything visual beyond text.** The map is Mermaid in Markdown. No 3D app, no
+  image assets, no browser dependency. If a richer visualisation is ever wanted,
+  **inspect the licence of any source you would borrow from and stop for the
+  user's approval before copying a single line of it.**
+- **A second copy of anything.** If a fact is written down in this repo, the
   workspace points at it. One home per fact.
 
 ---
@@ -486,20 +499,24 @@ compose these files from memory, and do not add a seventh.
 Read-only. Produce a picture of what is already here.
 
 1. **Existing entry files.** `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `README.md`,
-   `CONTRIBUTING.md`, any `agent-work/`. If an entry file exists, **read it fully**
-   and treat it as prior art, not debris. You are proposing to replace or absorb
-   someone's work; know what it says first.
-2. **The shape of the tree.** Top two levels. Where source lives, where docs live,
-   whether there are numbered directories or per-feature folders.
-3. **Documents that already answer questions.** Architecture, decisions, domain
-   model, terminology, runbooks. Note the path and what each one is the answer to.
-4. **The commands that actually work.** From `package.json`, `Makefile`, `pyproject.toml`,
-   CI workflows, README. Prefer what CI runs over what the README claims.
-5. **Risk surfaces.** Where auth, tenancy, billing, and externally reachable code
-   live. Grep for the repo's own vocabulary, not a generic list.
-6. **Existing human gates.** Anything the team already treats as one-way: deploys,
-   migrations, anything that reaches a customer. These are usually habits rather than
-   documents — the README rarely mentions the gate everyone respects.
+   `CONTRIBUTING.md`, any `agent-work/`. If one exists, **read it fully** and treat
+   it as prior art. You are proposing to replace or absorb someone's work.
+2. **Identity and stack.** Languages, runtime, frameworks, datastore, hosting —
+   from manifests and lockfiles, not from the README's aspirations.
+3. **Bounded contexts.** Where source lives, and which parts can be reasoned about
+   on their own. Feature folders, packages, services, modules.
+4. **Documents that already answer questions.** Architecture, decisions, domain
+   model, terminology, runbooks. Note the path and what each is the answer to.
+5. **Commands that actually work.** From `package.json`, `Makefile`,
+   `pyproject.toml`, CI workflows. Prefer what CI runs over what the README claims.
+   Note build, test, typecheck, lint, docs, deploy, and any local dev URL.
+6. **Boundaries.** What agents may change freely, and what is one-way: migrations,
+   generated files, vendored code, anything that reaches a customer.
+7. **Risk surfaces.** Where authentication, tenancy, billing, and externally
+   reachable code live. Grep the repo's own vocabulary, not a generic list.
+8. **Existing human gates.** Anything the team already treats as needing a person.
+   These are usually habits rather than documents — the README rarely mentions the
+   gate everyone respects.
 
 Report the inspection as findings. If the repo already has a healthy router, say so
 and recommend absorbing it rather than replacing it.
@@ -509,16 +526,17 @@ and recommend absorbing it rather than replacing it.
 Read [references/classification.md](references/classification.md) and pick one:
 **context map**, **pipeline**, or **composed**. State the signals you matched.
 
-The form shapes how `domains:` is written. It does not change the file list.
+The form shapes how `contexts:` is written. It does not change the file list.
 
 ## Phase 3 — Propose, then stop
 
 Present, in one screen:
 
 - the classification and the two or three signals behind it
-- the six files, with any that already exist marked **replace** or **absorb**
-- the `domains:` you intend to record, with their paths
+- the eight files, with any that already exist marked **replace** or **absorb**
+- the `contexts:` you intend to record, with their paths
 - the `sources_of_truth:` you found, in order
+- the `boundaries:` you found, allowed and protected
 - the `gates:` you found, including the mandatory deploy gate
 - anything you could not determine and will leave out rather than guess
 
@@ -558,18 +576,19 @@ the user will see a plan whose review report is missing or stale, and will
 the report. The report is a separate, structured, table-bearing section that
 must be the file's terminal heading.
 
-## Phase 4 — Scaffold the minimum adapter
+## Phase 4 — Scaffold the bounded adapter
 
-Copy the six starters and fill their placeholders. Rules that are not negotiable:
+Copy the six authored starters and fill their placeholders. Rules that are not
+negotiable:
 
 - **`AGENTS.md` stays under 60 lines** and carries no project content — only
-  pointers. If it is growing, the content belongs in `repo-map.yml` or in a document
-  `repo-map.yml` points at.
-- **`CLAUDE.md` is a pointer.** Never duplicate `AGENTS.md` into it. Two entry files
-  that both carry content will drift, and on the day they disagree neither is
+  pointers. If it is growing, the content belongs in `repo-map.yml` or in a
+  document `repo-map.yml` points at.
+- **`CLAUDE.md` is a pointer.** Never duplicate `AGENTS.md` into it. Two entry
+  files that both carry content will drift, and on the day they disagree neither is
   trustworthy.
-- **Everything else lives under `agent-work/`.** The repository root gets exactly two
-  new files.
+- **Everything else lives under `agent-work/`.** The repository root gets exactly
+  two new files.
 - Do not invent a path, a command, or a document that you did not verify in Phase 1.
 
 ## Phase 5 — Fill repo-map.yml
@@ -578,82 +597,103 @@ The only file that carries project facts. Field-by-field guidance is in
 [references/repo-map-schema.md](references/repo-map-schema.md).
 
 - Every `sources_of_truth` entry points at a document **that exists today**. Verify
-  each path before you write it.
+  each path before writing it, and give each an `id` the contexts can reference.
+- `contexts[].depends_on` draws the map's edges. Record the dependencies that are
+  real, not the ones that would look tidy.
 - `commands.dev_url` is `null` when nothing runnable exists. That null is
   load-bearing: it is what makes browser QA correctly skip rather than accidentally
-  skip.
+  skip. The same goes for every other command — omit rather than guess.
+- `task_classes` ships with the default policy. Adjust a class only with a reason
+  in its `note`.
 - `risk_markers` keys are fixed at four. An empty list is a real answer.
-- The `deploy` gate is mandatory and `self_clearable: false`.
+- The `deploy` gate is mandatory, `authority: user`, `self_clearable: false`.
 
-Then verify the file parses. A configuration file that does not parse is a
-configuration file nobody has read.
+## Phase 6 — Generate the map
 
-## Phase 6 — Walk the workspace cold
+```bash
+bun run ~/.claude/skills/gstack/bin/gstack-agent-map.ts --config agent-work/repo-map.yml
+```
+
+It writes `agent-work/generated/agent-map.mmd` and `agent-map.md`, both stamped as
+generated and non-authoritative. It is deterministic: identical YAML produces
+byte-identical output, which is what lets `--check` tell drift from noise.
+
+If the config is invalid it exits 2 and names the field, what it found, and the
+edit that fixes it. **Fix the YAML — never the generated file, and never work
+around the validator.** Re-run until it exits 0.
+
+`--check` renders and compares without writing. Use it to confirm the committed map
+still matches the config after someone edits the YAML.
+
+## Phase 7 — Walk the workspace cold
 
 The validation gate. Walk it as an agent with no memory, reading only files, and
-prove all four answers are reachable within **the entry file plus at most two more
+prove all four answers are reachable within **`AGENTS.md` plus at most two more
 reads**.
 
 | # | Question a cold agent must answer | Reachable from |
 |---|---|---|
 | 1 | **Where am I?** What is this repo and what ships out of it. | `AGENTS.md` (read 0) |
-| 2 | **What are the source-of-truth documents?** | `AGENTS.md` → `agent-work/repo-map.yml` (read 1) |
-| 3 | **What is the relevant command?** | same read — `commands:` in `repo-map.yml` (read 1) |
-| 4 | **What human gate applies?** | same read — `gates:` in `repo-map.yml`, or `_system/skill-routing.md` (read 2) |
+| 2 | **What task route applies?** | `AGENTS.md` → `task_classes:` in `repo-map.yml` (read 1) |
+| 3 | **Which documents and commands matter?** | same read — `sources_of_truth:` and `commands:` (read 1) |
+| 4 | **What human gate applies?** | same read — `gates:`, or `_system/skill-routing.md` (read 2) |
 
 Record the actual read path taken and the actual answers. Then check the structure:
 
 - Is any routing file carrying content payload? Move the payload; leave a pointer.
 - Is any fact stored in two places? Pick one home; link from the other.
+- Does `CLAUDE.md` restate anything from `AGENTS.md`? Reduce it to a pointer.
 - Does every `sources_of_truth` path resolve to a file that exists?
 - Is `AGENTS.md` still under 60 lines?
+- Does `--check` confirm the generated map matches the config?
 
 **If a question needs a third read, the structure is wrong — fix the structure, not
 the prose.** Move or split files until the walk works. Explaining harder is the one
 repair that never works.
 
-## Phase 7 — Report
+## Phase 8 — Report
 
 State: the classification and why; the files written; the walk-test read path and
-its four answers; anything left out and why. Name the gaps you chose not to guess
-at — a missing `e2e` command that says so is more useful than a plausible wrong one.
+its four answers; the map's generation command and `--check` result; anything left
+out and why. Name the gaps you chose not to guess at — a missing `docs` command
+that says so is more useful than a plausible wrong one.
 
 ---
 
-## Routing rules
+## Routing policy
 
-The rules ship in `templates/skill-routing.md.template` and are the same in every
-repository. Summary, so you can apply them while working here:
+The table itself is data, in `task_classes:`. It ships with this policy:
 
-| Shape of the change | Route |
-|---|---|
-| Trivial docs or config, one domain, no runtime change | **No review pipeline.** Say in one line why none was needed. |
-| Feature touching two or more domains | Planning skill — `/autoplan`, or `/plan-eng-review` for a single architectural call |
-| Broken, cause unknown | `/investigate` |
-| Code headed for a PR | `/review` |
-| Browser-visible change, `commands.dev_url` set | `/qa` — or `/qa-only` when no code changes are wanted |
-| Browser-visible change, no runnable URL | **Skip QA**, explicitly |
-| Hits `tenant_isolation`, `auth`, `billing`, or `externally_reachable` | `/cso` — only when the user asks for it in words, or the risk classification names the marker |
-| Deployment, release, or production configuration | **STOP.** Explicit user authorization, every time. Then `/land-and-deploy`. |
+| Class | When | Route |
+|---|---|---|
+| `docs-or-local-config` | documentation or local config only, one context | **no mandatory workflow** — say in one line why |
+| `cross-context-feature` | a feature, architectural change, or new capability spanning two or more contexts | `/autoplan`, or `/plan-eng-review` for a single architectural call |
+| `bug-or-failure` | something is broken or behaving unexpectedly | `/investigate` — before proposing a fix |
+| `pr-ready-implementation` | code written and headed for a PR | `/review` |
+| `browser-visible` | user-visible change **and** `commands.dev_url` is set | `/qa`, or `/qa-only` for a report without code changes |
+| `security-sensitive` | authentication, tenant isolation, billing, or an externally reachable surface | `/cso` — only when the risk classification requires it, or the user asks in words |
+| `release` | preparing a release | `/ship` may prepare a PR; **merge and deploy need explicit user authorization** |
 
-Rows add; they do not override. A cross-domain change that touches auth and ships
-is planning **and** security **and** the deploy gate, in that order. Only the first
-row removes work, and only when nothing else matches.
+Classes add; they do not override. Only the first removes work, and only when
+nothing else matches.
 
-**Route by risk, never by ritual.** A one-line docs fix does not earn a pipeline. A
-change to tenant isolation does not skip one for being small.
+**Never run every skill on every task.** Selection follows risk and scope, not
+ceremony. Running the full suite on a one-line change is not thoroughness — it
+trains people to skim the output, which is exactly when a real finding gets missed.
 
 ## Guardrails
 
 - **Do not over-structure.** The ladder runs chat → saved prompt → folders with one
-  agent. A repository that nobody has worked in twice does not need a workspace yet;
-  say so instead of building one.
+  agent. A repository nobody has worked in twice does not need a workspace yet; say
+  so instead of building one.
 - **Prior art wins ties.** If the repo's existing conventions conflict with the
-  starters, follow the repo and note the deviation in `routing_overrides:`.
+  starters, follow the repo and note the deviation in the relevant `note:`.
 - **Never overwrite an entry file without asking.** Absorb or replace is the user's
   call, made explicitly.
 - **The workspace describes; it does not enforce.** No hooks, no CI gates, no
   blocking mechanisms — by design, not by omission.
+- **The generated map is downstream of the YAML, always.** If you find yourself
+  editing `generated/`, stop: the edit belongs in `repo-map.yml`.
 
 ## Capture Learnings
 
@@ -661,7 +701,7 @@ If you discovered a non-obvious pattern, pitfall, or architectural insight durin
 this session, log it for future sessions:
 
 ```bash
-~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"icm-repo-workspace","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
+~/.claude/skills/gstack/bin/gstack-learnings-log '{"skill":"icm-repo-cartographer","type":"TYPE","key":"SHORT_KEY","insight":"DESCRIPTION","confidence":N,"source":"SOURCE","files":["path/to/relevant/file"]}'
 ```
 
 **Types:** `pattern` (reusable approach), `pitfall` (what NOT to do), `preference`
