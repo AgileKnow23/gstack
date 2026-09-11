@@ -4,6 +4,9 @@
 # /^---\n...\n---/ against SKILL.md.tmpl frontmatter, etc.
 *.md         text eol=lf
 *.tmpl       text eol=lf
+# Scaffold starters copied verbatim into other repos and byte-compared by tests
+# (icm-repo-workspace/templates/*). `*.md` does not match `AGENTS.md.template`.
+*.template   text eol=lf
 *.yml        text eol=lf
 *.yaml       text eol=lf
 *.json       text eol=lf
