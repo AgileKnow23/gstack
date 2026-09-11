@@ -195,15 +195,16 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   skillify: { gate: ['test/skill-e2e-skillify.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   learn: { gate: ['test/skill-e2e-learnings.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'plan-tune': { gate: ['test/skill-e2e-plan-tune.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
-  'icm-repo-workspace': {
+  'icm-repo-cartographer': {
     gate: [
-      'test/icm-repo-workspace-scaffold.test.ts',
-      'test/icm-repo-workspace-walk-test.test.ts',
+      'test/icm-repo-cartographer-scaffold.test.ts',
+      'test/icm-repo-cartographer-walk-test.test.ts',
+      'test/icm-repo-cartographer-map.test.ts',
       'test/skill-coverage-floor.test.ts',
     ],
     periodic: [],
     rationale:
-      'Both dedicated suites are free and hermetic — the walk test materializes a workspace in a temp dir and walks it as a cold agent counting reads — so the behavior that actually matters (router under 60 lines, CLAUDE.md a pointer, repo-map.yml the only project-specific file, four answers within entry + two reads) is CI-blocking at no per-run cost. Nothing here needs an LLM, so there is no periodic tier.',
+      'All three dedicated suites are free and hermetic — the walk test materializes a workspace in a temp dir and walks it as a cold agent counting reads, and the map suite renders from a fixture and drives the CLI — so the behavior that actually matters (router under 60 lines, CLAUDE.md a pointer with no duplicated routing, repo-map.yml the only project-specific file, a reproducible map that is never the source of truth, four answers within AGENTS.md + two reads, actionable errors on invalid config) is CI-blocking at no per-run cost. Nothing here needs an LLM, so there is no periodic tier.',
   },
 
   // ─── iOS family ─────────────────────────────────────────────

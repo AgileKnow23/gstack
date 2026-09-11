@@ -1,0 +1,184 @@
+# Fixture: a filled repo-map.yml for a minimal sample repository.
+#
+# This is the ONLY project-specific file in an icm-repo-cartographer scaffold. The
+# other five authored files are copied from the skill's templates unchanged, and
+# the two files under agent-work/generated/ are rendered from this one. That is
+# what the tests exercise: one reusable engine, one project-specific config.
+#
+# Deliberately small — four contexts, four documents, one protected boundary — so
+# the golden map stays readable in a diff. Nothing about the shape changes when a
+# real repository carries twenty of each.
+
+schema: icm-repo-cartographer/v1
+
+project:
+  name: sample-crm
+  form: composed
+  entry: AGENTS.md
+  stack:
+    languages:
+      - typescript
+      - sql
+    runtime: node
+    frameworks:
+      - react
+      - vite
+    datastore: postgres
+    hosting: cloudflare-pages
+
+sources_of_truth:
+  - id: terminology
+    path: docs/terminology.md
+    holds: the ubiquitous language, and which layer each term belongs to
+    read_when: before naming anything, or when a term reads differently in two files
+  - id: domain-model
+    path: docs/domain-model.md
+    holds: the aggregates and the invariants behind each bounded context
+    read_when: changing business rules rather than wiring
+  - id: tenancy
+    path: docs/tenancy.md
+    holds: how tenant isolation is enforced at the database
+    read_when: any change that reads or writes tenant-scoped data
+  - id: decisions
+    path: docs/decisions/DECISIONS.md
+    holds: what was decided and why, with links to the records
+    read_when: about to re-litigate a decision that already has an answer
+
+contexts:
+  - name: crm-core
+    purpose: customers, jobs, and the pipeline between them
+    paths:
+      - src/features/customers
+      - src/features/jobs
+    sources_of_truth:
+      - domain-model
+      - terminology
+    depends_on:
+      - tenants
+    risk:
+      - tenant_isolation
+  - name: communications
+    purpose: outbound messaging and the inbound webhooks that answer it
+    paths:
+      - src/features/communications
+      - functions/webhooks
+    sources_of_truth:
+      - domain-model
+    depends_on:
+      - crm-core
+      - tenants
+    risk:
+      - tenant_isolation
+      - externally_reachable
+  - name: billing
+    purpose: subscriptions, invoices, and the payment provider boundary
+    paths:
+      - src/features/billing
+    sources_of_truth:
+      - decisions
+    depends_on:
+      - tenants
+    risk:
+      - billing
+      - tenant_isolation
+  - name: tenants
+    purpose: tenancy, membership, and authentication
+    paths:
+      - src/features/tenants
+      - src/features/auth
+    sources_of_truth:
+      - tenancy
+      - decisions
+    depends_on: []
+    risk:
+      - auth
+      - tenant_isolation
+
+boundaries:
+  allowed:
+    - src
+    - docs
+    - tests
+  protected:
+    - paths:
+        - db/migrations
+      why: migrations run against a shared database and are not reversible in place
+      gate: migration
+
+commands:
+  build: npm run build
+  test: npm run test
+  typecheck: npm run typecheck
+  lint: npm run lint
+  docs: npm run docs
+  deploy: npm run deploy
+  dev_url: http://localhost:8080
+
+task_classes:
+  - id: docs-or-local-config
+    when: documentation or local configuration only, one context, no runtime behaviour change
+    skill: null
+    gate: null
+    note: say in one line why no workflow was needed
+  - id: cross-context-feature
+    when: a feature, architectural change, or new capability spanning two or more contexts
+    skill: /autoplan
+    gate: null
+    note: use /plan-eng-review instead for a single architectural call
+  - id: bug-or-failure
+    when: something is broken, failing, or behaving unexpectedly
+    skill: /investigate
+    gate: null
+    note: investigate before proposing a fix
+  - id: pr-ready-implementation
+    when: code is written and headed for a pull request
+    skill: /review
+    gate: null
+  - id: browser-visible
+    when: user-visible behaviour changed and a runnable URL exists
+    skill: /qa
+    gate: null
+    note: /qa-only for a report without code changes; skip entirely when dev_url is null
+  - id: security-sensitive
+    when: authentication, tenant isolation, billing, or an externally reachable surface
+    skill: /cso
+    gate: null
+    note: only when the risk classification requires it, or the user asks in words
+  - id: release
+    when: preparing a release
+    skill: /ship
+    gate: deploy
+    note: /ship may prepare a PR; merging and deploying need explicit user authorization
+
+gates:
+  - id: deploy
+    when: any merge to the release branch, deployment, or production configuration change
+    requires: explicit user authorization, every time — prior approval never carries forward
+    authority: user
+    self_clearable: false
+  - id: migration
+    when: any change under db/migrations
+    requires: owner approval before the migration is applied to a shared database
+    authority: user
+    self_clearable: false
+
+risk_markers:
+  auth:
+    - src/features/auth
+    - session
+  tenant_isolation:
+    - tenant_id
+    - row level security
+    - db/migrations
+  billing:
+    - src/features/billing
+    - stripe
+  externally_reachable:
+    - functions/webhooks
+
+generated_map:
+  output_dir: agent-work/generated
+  mermaid: agent-map.mmd
+  markdown: agent-map.md
+  direction: LR
+  source_of_truth: false
