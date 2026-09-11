@@ -13,39 +13,41 @@ the work proceeds with the route already settled.
 
 ## Classification
 
-Read `agent-work/repo-map.yml` and answer both. Do not skip to the route.
+Read `agent-work/repo-map.yml` and answer all four. Do not skip to the route.
 
-- **Domains touched:** {names from `domains:`, or "none — no source change"}
+- **Contexts touched:** {names from `contexts:`, or "none — no source change"}
 - **Risk markers hit:** {keys from `risk_markers:`, or "none"}
+- **Protected boundaries crossed:** {from `boundaries.protected:`, or "none"}
 - **Runnable URL available:** {`commands.dev_url`, or "none"}
 
 ## Route
 
-From `agent-work/_system/skill-routing.md`. List every row that matches — they add.
+From `task_classes:` in `repo-map.yml`, applied per `_system/skill-routing.md`.
+List every class that matches — they add.
 
-- {skill or "no review pipeline"} — because {which row, and why it applies}
+- {class id} → {skill, or "no mandatory workflow"} — because {why it applies}
 
 ## Gates
 
-From `gates:` in `repo-map.yml`. Name each one that this task will reach.
+From `gates:` in `repo-map.yml`. Name each one this task will reach.
 
 - {gate id} — {what must happen, and who clears it}
 
-Deployment, if this task reaches it, needs explicit authorization from the user at
-the moment of deploying. Nothing above pre-clears it.
+Merging and deploying, if this task reaches them, need explicit authorization from
+the user at that moment. Nothing above pre-clears it.
 
 ## Not in scope
 
 {The nearby work this task is deliberately not doing. Being specific here is what
-stops the task from growing while nobody is looking.}
+stops the task growing while nobody is looking.}
 
 ## Verification
 
-{How you will know it worked — the command, the URL, the assertion. "Looks right"
-is not on this list.}
+{How you will know it worked — the command from `commands:`, the URL, the
+assertion. "Looks right" is not on this list.}
 
 ## Result
 
 {Filled in at the end: what shipped, what was verified, what was left tracked and
 why. If something was skipped, say so here rather than leaving the reader to
-notice.}
+notice. If `repo-map.yml` changed, confirm the map was regenerated.}

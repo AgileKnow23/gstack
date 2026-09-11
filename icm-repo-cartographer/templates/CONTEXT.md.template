@@ -1,0 +1,50 @@
+# agent-work — the repository's agent adapter
+
+One job: tell an agent where it is, what is true about this project, and how much
+process a given change earns.
+
+## Inputs
+
+- Working (every task): `repo-map.yml` — the canonical source of truth
+- Reference (every task): `_system/skill-routing.md` — how to select a skill
+- Reference (on demand): whatever `sources_of_truth:` points at, and only the entry
+  whose `read_when:` the current task actually matches
+
+Do NOT load: the whole `docs/` tree, every file under a context's `paths:`, task
+briefs other than the one you are working on, or `generated/` as a substitute for
+the YAML. Loading the map is not the same as walking the building.
+
+## Process
+
+1. **Read `repo-map.yml`.** Which `contexts:` does the change touch? Which
+   `risk_markers:` does it hit? Write both answers down before forming an opinion
+   about effort.
+2. **Match against `task_classes:`**, following `_system/skill-routing.md`. Classes
+   add. `skill: null` is a real answer.
+3. **Check `boundaries:`.** A path under `protected:` carries the gate named there,
+   on top of whatever the task class said.
+4. **Copy `_templates/task-brief.md`** and fill it in. Classification and route go
+   in the brief before the work starts, not after.
+5. **Do the work**, stopping at every gate that was named.
+6. **If you changed `repo-map.yml`, regenerate the map** — `generated/` is a view
+   and a stale view is worse than none.
+
+## Outputs
+
+- A filled task brief. This workspace does not mandate where briefs live — put them
+  where this project already keeps working notes, and say where in the brief itself.
+- The change, in the repository.
+- A regenerated `generated/` when, and only when, the YAML changed.
+
+## Human check
+
+Read the brief before the work starts. The classification, the route, and the gates
+must all be things you agree with. Correcting the route here costs a sentence;
+correcting it after the work costs the work.
+
+## What lives here, and what does not
+
+This folder holds the adapter. It carries no project documentation of its own —
+`repo-map.yml` points at where each fact already lives, and `generated/` is
+rendered from it. When a fact starts existing in two places, delete one and leave a
+pointer.

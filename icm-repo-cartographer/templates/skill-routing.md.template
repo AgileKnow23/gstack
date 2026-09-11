@@ -1,0 +1,58 @@
+# Selecting a skill — by risk and scope, not ceremony
+
+How much process a change earns is a function of what the change can break, not of
+how the work feels or how long it took.
+
+**The routing table itself is not in this file.** It lives in `repo-map.yml` under
+`task_classes:`, because that is project configuration and a project may add or
+adjust a class. This file explains how to apply it. One home per fact.
+
+## How to select
+
+1. **Classify before you decide.** Read `repo-map.yml` and answer two questions in
+   writing: which `contexts:` does the change touch, and which `risk_markers:` does
+   it hit? Do not skip to the route — the classification is what makes the route
+   defensible, and it is the part a reviewer can disagree with cheaply.
+2. **Match the classification against `task_classes:`.** Each class names a `when`,
+   a `skill` (or `null`), and a `gate` (or `null`).
+3. **Take every class that matches.** Classes add; they do not override. A
+   cross-context feature that touches authentication and then ships is planning
+   **and** security **and** the release gate, in that order.
+4. **`skill: null` is a real answer, and the most common one.** When nothing but the
+   docs-or-config class matches, make the change and say in one line why no workflow
+   was needed. A review pipeline on a typo teaches everyone that pipelines are
+   theatre, and the next real finding gets the same shrug.
+
+## Never run every skill on every task
+
+Running the full suite on a one-line change is not thoroughness. It costs time and
+attention, and it trains people to skim the output — which is exactly when a real
+finding gets missed. Selection is the point.
+
+Two rules people drop, so they are worth stating on their own:
+
+- **Browser QA needs a runnable URL.** When `commands.dev_url` is null, skip it and
+  say so. QA without a URL is a transcript of good intentions.
+- **Security review runs when the risk is real.** `/cso` is for a change that hits
+  authentication, tenant isolation, billing, or an externally reachable surface —
+  named by the risk classification, or asked for by the user in words. An agent
+  deciding on its own that something felt security-adjacent is not a request.
+
+## Releases
+
+A release skill may prepare a pull request. **Merging and deploying always require
+explicit authorization from the user, at the moment of doing it.** No earlier
+approval carries forward, and no classification pre-clears it.
+
+## What this file will not do
+
+It adds no scanner, no credential detector, no CI gate, no forced review loop, and
+no pre-push hook. Routing is advice a human acts on, not a mechanism that blocks
+one. If a rule here ever needs enforcement, that is a separate decision, made
+deliberately, somewhere else.
+
+## Project deviations
+
+Change `task_classes:` in `repo-map.yml`, and say in the class's `note` why this
+project differs. A deviation without a reason is ceremony wearing the costume of
+judgement.

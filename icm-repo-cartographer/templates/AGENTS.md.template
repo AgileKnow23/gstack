@@ -9,10 +9,11 @@ at everything and stores almost nothing. Read what the task needs, not the whole
 
 | Path | What it holds |
 |---|---|
-| `agent-work/repo-map.yml` | **The project's facts.** Domains, source-of-truth docs, commands, gates, risk markers. Read this first, every time. |
+| `agent-work/repo-map.yml` | **The project's facts, and the canonical source of truth.** Contexts, documents, boundaries, commands, task classes, gates. Read this first, every time. |
 | `agent-work/CONTEXT.md` | The contract for working here: inputs, process, outputs, human check. |
-| `agent-work/_system/skill-routing.md` | Which skill a change earns, by risk. |
+| `agent-work/_system/skill-routing.md` | How to select a skill, and why not every task gets one. |
 | `agent-work/_templates/task-brief.md` | Copy to start a unit of work. New work is a copy, never a blank page. |
+| `agent-work/generated/agent-map.md` | A rendered picture of the above. **Generated, never authoritative.** |
 
 Project documentation is listed under `sources_of_truth:` in `repo-map.yml`. That
 list is the only place those paths are recorded — do not restate them here.
@@ -22,9 +23,10 @@ list is the only place those paths are recorded — do not restate them here.
 | If the task is | Go to | Stop at |
 |---|---|---|
 | anything at all, first | `agent-work/repo-map.yml` | — |
-| deciding how much process a change earns | `agent-work/_system/skill-routing.md` | the gate that rule names |
+| deciding how much process a change earns | `task_classes:` in `repo-map.yml` | the gate that class names |
 | starting a unit of work | copy `agent-work/_templates/task-brief.md` | a human reads the brief |
 | running something | `commands:` in `repo-map.yml` | — |
+| getting oriented visually | `agent-work/generated/agent-map.md` | re-read the YAML before acting |
 | reporting status | scan git state against `gates:` in `repo-map.yml` | report what is true, not what is hoped |
 
 ## The gates
@@ -32,16 +34,16 @@ list is the only place those paths are recorded — do not restate them here.
 Gates live in `repo-map.yml` under `gates:`. They are not advisory, and an agent
 does not clear its own gate.
 
-**Deployment requires explicit authorization from the user, every time.** Approval
-for one deploy never carries forward to the next.
+**Merging and deploying require explicit authorization from the user, every time.**
+Approval for one release never carries forward to the next.
+
+## The generated map is a view
+
+`agent-work/generated/` is rendered from `repo-map.yml`. If the two disagree, the
+YAML wins and the map is stale — regenerate it, never edit it, and never cite it as
+the reason something is true.
 
 ## The one rule
 
-**Route by risk, never by ritual.** A one-line docs fix does not earn a review
-pipeline. A change to tenant isolation does not skip one for being small.
-
-## When this file is wrong
-
-If reality and this router disagree, reality wins — fix the router or fix
-`repo-map.yml` in the same change that proved it stale. A catalog nobody trusts is
-worse than no catalog.
+**Route by risk and scope, never by ceremony.** A one-line docs fix earns no
+workflow. A change to tenant isolation does not skip one for being small.

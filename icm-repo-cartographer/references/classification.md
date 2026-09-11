@@ -1,8 +1,8 @@
 # Classifying a repository: context map, pipeline, or composed
 
 Read this at Phase 2, after the inspection and before proposing anything. The form
-decides how `domains:` is written and how status is answered. It does not change
-the scaffold's file list — the adapter is the same six files either way.
+decides how `contexts:` is written and how status is answered. It does not change
+the scaffold's file list — the adapter is the same eight files either way.
 
 Classify from what the repository already does, not from what would be tidy.
 
@@ -16,8 +16,8 @@ Signals:
 - No numbered stages, no "step 1 / step 2" in the docs
 - "Where does this change go?" is answered by *which area*, not *how far along*
 
-How it lands in `repo-map.yml`: `domains:` are the nodes. Expect several, each with
-its own `paths:` and often its own `doc:`. Status is a git question, not a folder
+How it lands in `repo-map.yml`: `contexts:` are the nodes, and `depends_on` draws the edges the map renders. Expect several, each with
+its own `paths:` and its own `sources_of_truth:` ids. Status is a git question, not a folder
 scan.
 
 ## Pipeline
@@ -31,13 +31,13 @@ Signals:
 - Documentation that reads as an order of operations
 - A human checkpoint between steps that everyone knows about and nobody wrote down
 
-How it lands: `domains:` are the stages, in order. The human checkpoints between
+How it lands: `contexts:` are the stages, in order. The human checkpoints between
 stages are `gates:` — that is usually where the most valuable gate in the whole
 file comes from, because it already exists as a habit.
 
 ## Composed
 
-**A map whose domains carry small pipelines.** This is what most real product
+**A map whose contexts carry small pipelines.** This is what most real product
 repositories are, and guessing "composed" when torn is usually right.
 
 Signals:
@@ -45,8 +45,9 @@ Signals:
   ordered flow — a migration path, a generation step, a review sequence
 - One area's output is another's input, but only sometimes
 
-How it lands: `domains:` are the map nodes. A domain that carries an internal order
-says so in its `doc:`; the top-level file does not describe the inside of a domain.
+How it lands: `contexts:` are the map nodes. A context that carries an internal order
+says so in the document its `sources_of_truth:` names; the top-level file does not
+describe the inside of a context.
 Each level keeps its own small catalog and links down without describing what is
 below it.
 
@@ -57,11 +58,11 @@ someone owns, or a run that produces something? Areas mean map. Runs mean pipeli
 Both, honestly answered, mean composed.
 
 Do not split the difference by inventing a fourth form. The form is a lens for
-writing `domains:` well, not a label anyone will defend later.
+writing `contexts:` well, not a label anyone will defend later.
 
 ## What the form does not decide
 
-- The scaffold's file list. Always the same six files.
+- The scaffold's file list. Always the same eight files, six authored and two generated.
 - The routing rules. Those key off risk, not form.
 - Folder layout of the repository itself. This skill adapts to the repo; it never
   reorganizes it. Restructuring a repository into ICM shape is a different job, done
