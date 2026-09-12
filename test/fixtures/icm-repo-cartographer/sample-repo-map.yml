@@ -175,8 +175,5 @@ risk_markers:
     - functions/webhooks
 
 generated_map:
-  output_dir: agent-work/generated
-  mermaid: agent-map.mmd
-  markdown: agent-map.md
   direction: LR
   source_of_truth: false

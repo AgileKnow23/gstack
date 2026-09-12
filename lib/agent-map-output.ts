@@ -22,6 +22,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { GENERATED_MERMAID, GENERATED_MARKDOWN } from './agent-map';
 
 /** Carries the configured field and the offending path so the message can be acted on. */
 export class OutputPathError extends Error {
@@ -36,9 +37,9 @@ export class OutputPathError extends Error {
 }
 
 export interface OutputTarget {
-  /** `mermaid` or `markdown` — the key in generated_map. */
+  /** `mermaid` or `markdown` — which artifact this is. */
   key: string;
-  /** The dotted field a user would edit, e.g. `generated_map.mermaid`. */
+  /** What an operator would change to move this file — the `--out` flag and the fixed name. */
   field: string;
   /** Absolute path of the file to produce. */
   file: string;
@@ -53,12 +54,12 @@ export interface OutputPlan {
 export interface ResolveOptions {
   /** Repository/config root. Components at or above this are not judged. */
   root: string;
-  /** Output directory as configured or passed via --out; may be relative. */
+  /**
+   * Output directory: the fixed canonical location, or whatever an operator
+   * passed to `--out`. Never a value read from a repository config — the schema
+   * has no field for one, which is why this signature takes no filenames either.
+   */
   outDir: string;
-  /** Bare filename for the Mermaid artifact. */
-  mermaid: string;
-  /** Bare filename for the Markdown artifact. */
-  markdown: string;
 }
 
 /** Ancestors of `target` that sit strictly below `root`, outermost first, then the target. */
@@ -133,9 +134,12 @@ export function assertNoSymlinkOnPath(root: string, target: string, field: strin
 export function resolveOutputPlan(opts: ResolveOptions): OutputPlan {
   const outDir = path.resolve(opts.outDir);
 
+  // Filenames are policy, so there is nothing here for a config to influence.
+  // The `field` is what an operator would change to move the output — the CLI
+  // flag now, rather than a YAML key that no longer exists.
   const targets: OutputTarget[] = [
-    { key: 'mermaid', field: 'generated_map.mermaid', file: path.join(outDir, opts.mermaid) },
-    { key: 'markdown', field: 'generated_map.markdown', file: path.join(outDir, opts.markdown) },
+    { key: 'mermaid', field: '--out / ' + GENERATED_MERMAID, file: path.join(outDir, GENERATED_MERMAID) },
+    { key: 'markdown', field: '--out / ' + GENERATED_MARKDOWN, file: path.join(outDir, GENERATED_MARKDOWN) },
   ];
 
   // 1. Lexical containment — cheap, and catches the configured-name cases.

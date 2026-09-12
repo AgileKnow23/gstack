@@ -6960,6 +6960,9 @@ var $visitAsync = visit.visitAsync;
 var REPO_MAP_SCHEMA = "icm-repo-cartographer/v1";
 var RISK_MARKER_KEYS = ["auth", "tenant_isolation", "billing", "externally_reachable"];
 var PROJECT_FORMS = ["context-map", "pipeline", "composed"];
+var GENERATED_DIR = "agent-work/generated";
+var GENERATED_MERMAID = "agent-map.mmd";
+var GENERATED_MARKDOWN = "agent-map.md";
 var GENERATED_BANNER = "GENERATED FROM agent-work/repo-map.yml — DO NOT EDIT, AND DO NOT TREAT AS SOURCE OF TRUTH.";
 
 class RepoMapError extends Error {
@@ -6974,6 +6977,23 @@ var fail = (field, message) => {
   throw new RepoMapError(field, message);
 };
 var isPlainObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+var RETIRED = {
+  "generated_map.output_dir": "the output directory is fixed tool policy now. Generated files always go to " + `${GENERATED_DIR}/. To render somewhere else for a one-off, pass --out <dir> on the command line — ` + "a checked-in config may not choose a destination, because a mistyped one can overwrite files " + "outside the repository.",
+  "generated_map.mermaid": `the Mermaid filename is fixed tool policy now: ${GENERATED_MERMAID}. Configurable names produced ` + "filesystem-alias collisions on Windows and macOS, so the schema no longer accepts one.",
+  "generated_map.markdown": `the Markdown filename is fixed tool policy now: ${GENERATED_MARKDOWN}. Configurable names produced ` + "filesystem-alias collisions on Windows and macOS, so the schema no longer accepts one."
+};
+function rejectUnknownKeys(value, at, known) {
+  for (const key of Object.keys(value)) {
+    if (known.includes(key))
+      continue;
+    const dotted = at === "" ? key : `${at}.${key}`;
+    const retired = RETIRED[dotted];
+    if (retired) {
+      fail(dotted, `remove it — ${retired}`);
+    }
+    fail(dotted, `unknown field. This schema accepts only: ${known.join(", ")}. An unknown key is never ignored, ` + `because a setting that silently does nothing is worse than one that fails. Check the spelling, ` + `or remove it.`);
+  }
+}
 function requireString(value, field, hint) {
   if (typeof value !== "string" || value.trim() === "") {
     fail(field, `expected a non-empty string, found ${describe(value)}. ${hint}`);
@@ -7007,6 +7027,18 @@ function parseRepoMap(text) {
     fail("(whole file)", `expected a mapping at the top level, found ${describe(raw)}. The file may be empty.`);
   }
   const doc = raw;
+  rejectUnknownKeys(doc, "", [
+    "schema",
+    "project",
+    "sources_of_truth",
+    "contexts",
+    "boundaries",
+    "commands",
+    "task_classes",
+    "gates",
+    "risk_markers",
+    "generated_map"
+  ]);
   if (doc.schema !== REPO_MAP_SCHEMA) {
     fail("schema", `expected "${REPO_MAP_SCHEMA}", found ${JSON.stringify(doc.schema ?? null)}. ` + `Set it, or migrate the file if it was written for an older engine.`);
   }
@@ -7014,6 +7046,16 @@ function parseRepoMap(text) {
     fail("project", `expected a mapping with name, form and entry, found ${describe(doc.project)}.`);
   }
   const projectRaw = doc.project;
+  rejectUnknownKeys(projectRaw, "project", ["name", "form", "entry", "stack", "summary"]);
+  if (isPlainObject(projectRaw.stack)) {
+    rejectUnknownKeys(projectRaw.stack, "project.stack", [
+      "languages",
+      "runtime",
+      "frameworks",
+      "datastore",
+      "hosting"
+    ]);
+  }
   const name = requireString(projectRaw.name, "project.name", "This is the repository name.");
   const form = requireString(projectRaw.form, "project.form", `One of: ${PROJECT_FORMS.join(", ")}.`);
   if (!PROJECT_FORMS.includes(form)) {
@@ -7031,6 +7073,7 @@ function parseRepoMap(text) {
     if (!isPlainObject(entry2))
       fail(at, `expected a mapping, found ${describe(entry2)}.`);
     const e = entry2;
+    rejectUnknownKeys(e, at, ["id", "path", "holds", "read_when"]);
     return {
       id: requireString(e.id, `${at}.id`, "A short stable id; contexts reference it."),
       path: requireString(e.path, `${at}.path`, "A document that exists today."),
@@ -7065,6 +7108,7 @@ function parseRepoMap(text) {
     if (!isPlainObject(entry2))
       fail(at, `expected a mapping, found ${describe(entry2)}.`);
     const e = entry2;
+    rejectUnknownKeys(e, at, ["id", "when", "requires", "authority", "self_clearable"]);
     if ("self_clearable" in e) {
       fail(`${at}.self_clearable`, `remove it. Every gate is non-self-clearable — that is not configurable, because a gate an ` + `agent may clear is an approval boundary that exists only on paper. If this step can clear ` + `itself automatically, it is a check rather than a gate: drop it from gates: and let the ` + `task class or the command that runs it carry the work.`);
     }
@@ -7099,6 +7143,7 @@ function parseRepoMap(text) {
     if (!isPlainObject(entry2))
       fail(at, `expected a mapping, found ${describe(entry2)}.`);
     const e = entry2;
+    rejectUnknownKeys(e, at, ["name", "purpose", "paths", "sources_of_truth", "depends_on", "risk"]);
     const ctxName = requireString(e.name, `${at}.name`, "The word the team actually uses.");
     const paths = requireStringList(e.paths, `${at}.paths`, "Path prefixes owned by this context.");
     if (paths.length === 0) {
@@ -7146,6 +7191,7 @@ function parseRepoMap(text) {
     fail("boundaries", `expected a mapping with "allowed" and "protected".`);
   }
   const boundariesRaw = doc.boundaries;
+  rejectUnknownKeys(boundariesRaw, "boundaries", ["allowed", "protected"]);
   const allowed = requireStringList(boundariesRaw.allowed, "boundaries.allowed", "Paths an agent may change under the normal rules.");
   const protectedRaw = boundariesRaw.protected;
   if (protectedRaw !== undefined && protectedRaw !== null && !Array.isArray(protectedRaw)) {
@@ -7156,6 +7202,7 @@ function parseRepoMap(text) {
     if (!isPlainObject(entry2))
       fail(at, `expected a mapping, found ${describe(entry2)}.`);
     const e = entry2;
+    rejectUnknownKeys(e, at, ["paths", "why", "gate"]);
     const gate = requireString(e.gate, `${at}.gate`, `A gate id. Known gates: ${[...gateIds].join(", ")}.`);
     if (!gateIds.has(gate)) {
       fail(`${at}.gate`, `"${gate}" is not a known gate id. Known gates: ${[...gateIds].join(", ")}.`);
@@ -7172,6 +7219,15 @@ function parseRepoMap(text) {
   if (!isPlainObject(doc.commands)) {
     fail("commands", `expected a mapping. Use null for a command this repo does not have.`);
   }
+  rejectUnknownKeys(doc.commands, "commands", [
+    "build",
+    "test",
+    "typecheck",
+    "lint",
+    "docs",
+    "deploy",
+    "dev_url"
+  ]);
   const commands = {};
   for (const [key, value] of Object.entries(doc.commands)) {
     if (value === null || value === undefined) {
@@ -7191,6 +7247,7 @@ function parseRepoMap(text) {
     if (!isPlainObject(entry2))
       fail(at, `expected a mapping, found ${describe(entry2)}.`);
     const e = entry2;
+    rejectUnknownKeys(e, at, ["id", "when", "skill", "gate", "note"]);
     const id = requireString(e.id, `${at}.id`, "A short stable id for this class of work.");
     let skill = null;
     if (e.skill !== null && e.skill !== undefined) {
@@ -7227,24 +7284,15 @@ function parseRepoMap(text) {
     fail("task_classes", `at least one class must have skill: null. A routing table where every change earns a workflow is ceremony, not routing.`);
   }
   if (!isPlainObject(doc.generated_map)) {
-    fail("generated_map", `expected a mapping with output_dir, mermaid, markdown, direction and source_of_truth.`);
+    fail("generated_map", `expected a mapping with direction and source_of_truth.`);
   }
+  rejectUnknownKeys(doc.generated_map, "generated_map", [
+    "direction",
+    "source_of_truth"
+  ]);
   const gm = doc.generated_map;
   if (gm.source_of_truth !== false) {
     fail("generated_map.source_of_truth", `must be false. The map is rendered FROM this file and is never authoritative — if they disagree, this file wins.`);
-  }
-  const outputName = (key) => {
-    const value = requireString(gm[key], `generated_map.${key}`, `A bare filename such as "agent-map.${key === "mermaid" ? "mmd" : "md"}".`);
-    if (/[\\/]/.test(value) || value === "." || value === ".." || /^[A-Za-z]:/.test(value)) {
-      fail(`generated_map.${key}`, `"${value}" must be a bare filename, not a path. Anything with a separator, a drive letter or ` + `a ".." component can resolve outside generated_map.output_dir, and these files are written, ` + `not read — an unrelated file would be silently overwritten. Put the directory in output_dir.`);
-    }
-    return value;
-  };
-  const mermaidName = outputName("mermaid");
-  const markdownName = outputName("markdown");
-  if (mermaidName.toLowerCase() === markdownName.toLowerCase()) {
-    const identical = mermaidName === markdownName;
-    fail("generated_map.mermaid", `"${mermaidName}" and generated_map.markdown "${markdownName}" ` + (identical ? "are the same filename." : "differ only in case, which is the same file on Windows and macOS.") + ` Each artifact needs its own filename — the Mermaid source and the readable map are two ` + `separate files, and sharing a name means one silently overwrites the other and --check can ` + `never pass. Give generated_map.mermaid and generated_map.markdown distinct names.`);
   }
   const direction = requireString(gm.direction, "generated_map.direction", "A Mermaid direction such as LR or TD.");
   if (!["LR", "RL", "TD", "TB", "BT"].includes(direction)) {
@@ -7266,9 +7314,6 @@ function parseRepoMap(text) {
     gates,
     risk_markers: riskMarkers,
     generated_map: {
-      output_dir: requireString(gm.output_dir, "generated_map.output_dir", "Where the rendered files go."),
-      mermaid: mermaidName,
-      markdown: markdownName,
       direction,
       source_of_truth: false
     }
@@ -7487,6 +7532,54 @@ function renderMarkdown(map, mermaid) {
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+// lib/agent-map.ts
+var GENERATED_DIR2 = "agent-work/generated";
+var GENERATED_MERMAID2 = "agent-map.mmd";
+var GENERATED_MARKDOWN2 = "agent-map.md";
+class RepoMapError2 extends Error {
+  field;
+  constructor(field, message) {
+    super(`repo-map.yml: ${field} — ${message}`);
+    this.field = field;
+    this.name = "RepoMapError";
+  }
+}
+var RETIRED2 = {
+  "generated_map.output_dir": "the output directory is fixed tool policy now. Generated files always go to " + `${GENERATED_DIR2}/. To render somewhere else for a one-off, pass --out <dir> on the command line — ` + "a checked-in config may not choose a destination, because a mistyped one can overwrite files " + "outside the repository.",
+  "generated_map.mermaid": `the Mermaid filename is fixed tool policy now: ${GENERATED_MERMAID2}. Configurable names produced ` + "filesystem-alias collisions on Windows and macOS, so the schema no longer accepts one.",
+  "generated_map.markdown": `the Markdown filename is fixed tool policy now: ${GENERATED_MARKDOWN2}. Configurable names produced ` + "filesystem-alias collisions on Windows and macOS, so the schema no longer accepts one."
+};
+function slugify2(value) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "x";
+}
+
+class NodeIds2 {
+  assigned = new Map;
+  taken = new Set;
+  allocate(prefix, value) {
+    const bucket = this.assigned.get(prefix) ?? new Map;
+    this.assigned.set(prefix, bucket);
+    const existing = bucket.get(value);
+    if (existing)
+      return existing;
+    const base = `${prefix}_${slugify2(value)}`;
+    let candidate = base;
+    for (let n = 2;this.taken.has(candidate); n++)
+      candidate = `${base}_${n}`;
+    bucket.set(value, candidate);
+    this.taken.add(candidate);
+    return candidate;
+  }
+  get(prefix, value) {
+    const id = this.assigned.get(prefix)?.get(value);
+    if (!id) {
+      throw new RepoMapError2(`${prefix}[${value}]`, `internal: no Mermaid node was allocated for this reference. This is a renderer bug, not a config error.`);
+    }
+    return id;
+  }
+}
+
+// lib/agent-map-output.ts
 class OutputPathError extends Error {
   field;
   offendingPath;
@@ -7540,8 +7633,8 @@ function assertNoSymlinkOnPath(root, target, field) {
 function resolveOutputPlan(opts) {
   const outDir = path.resolve(opts.outDir);
   const targets = [
-    { key: "mermaid", field: "generated_map.mermaid", file: path.join(outDir, opts.mermaid) },
-    { key: "markdown", field: "generated_map.markdown", file: path.join(outDir, opts.markdown) }
+    { key: "mermaid", field: "--out / " + GENERATED_MERMAID2, file: path.join(outDir, GENERATED_MERMAID2) },
+    { key: "markdown", field: "--out / " + GENERATED_MARKDOWN2, file: path.join(outDir, GENERATED_MARKDOWN2) }
   ];
   for (const target of targets) {
     const rel = path.relative(outDir, path.resolve(target.file));
@@ -7601,18 +7694,15 @@ if (!fs2.existsSync(configPath)) {
 }
 var rendered;
 var outDir;
-var mermaidName;
-var markdownName;
 var repoRoot;
+var explicitOut = flag("--out");
 try {
   const text = fs2.readFileSync(configPath, "utf-8");
   const map = parseRepoMap(text);
   const mermaid = renderMermaid(map);
   rendered = { mermaid, markdown: renderMarkdown(map, mermaid) };
   repoRoot = path2.dirname(path2.dirname(configPath));
-  outDir = path2.resolve(flag("--out") ?? path2.join(repoRoot, map.generated_map.output_dir));
-  mermaidName = map.generated_map.mermaid;
-  markdownName = map.generated_map.markdown;
+  outDir = path2.resolve(explicitOut ?? path2.join(repoRoot, GENERATED_DIR));
 } catch (err) {
   if (err instanceof RepoMapError) {
     console.error(`gstack-agent-map: invalid config
@@ -7628,12 +7718,12 @@ if (toStdout) {
 }
 var plan;
 try {
-  plan = resolveOutputPlan({ root: repoRoot, outDir, mermaid: mermaidName, markdown: markdownName });
+  plan = resolveOutputPlan({ root: repoRoot, outDir });
 } catch (err) {
   if (err instanceof OutputPathError) {
-    console.error(`gstack-agent-map: invalid config
-  ${err.field} \u2014 ${err.message}
-  File: ${configPath}`);
+    console.error(`gstack-agent-map: unsafe output path
+  ${err.message}
+  Config: ${configPath}`);
     process.exit(2);
   }
   throw err;

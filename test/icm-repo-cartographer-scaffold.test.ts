@@ -176,10 +176,14 @@ describe('icm-repo-cartographer repo-map.yml is the only project-specific file',
     expect(byId['release'].gate).toBe('deploy');
   });
 
-  test('generated_map declares itself non-authoritative', () => {
+  test('generated_map declares itself non-authoritative and nothing else', () => {
     const gm = parsed.generated_map as Record<string, unknown>;
     expect(gm.source_of_truth).toBe(false);
-    expect(gm.output_dir).toBe('agent-work/generated');
+    // Destination and filenames are tool policy, so the shipped template must not
+    // teach fields that now fail the parse.
+    expect(Object.keys(gm).sort()).toEqual(['direction', 'source_of_truth']);
+    expect(raw).toMatch(/fixed tool policy, not settings/i);
+    expect(raw).toContain('--out <dir>');
   });
 
   test('no other scaffold template carries project facts', () => {
@@ -307,7 +311,9 @@ describe('icm-repo-cartographer SKILL.md.tmpl', () => {
   });
 
   test('states the output-confinement and gate invariants', () => {
-    expect(tmpl).toMatch(/nothing this tool writes may land outside it/i);
+    expect(tmpl).toMatch(/Where the\s+map is written and what it is called is fixed tool policy/i);
+    expect(tmpl).toMatch(/Unknown fields fail the parse/i);
+    expect(tmpl).toMatch(/agent-work\/generated\/agent-map/);
     expect(tmpl).toMatch(/Every gate is non-self-clearable and there is no field to say otherwise/i);
     expect(tmpl).toMatch(/it is a check, not a gate/i);
   });

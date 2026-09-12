@@ -386,9 +386,6 @@ describe('one reusable engine, one project-specific configuration file', () => {
         ],
         risk_markers: { auth: [], tenant_isolation: [], billing: [], externally_reachable: [] },
         generated_map: {
-          output_dir: 'agent-work/generated',
-          mermaid: 'agent-map.mmd',
-          markdown: 'agent-map.md',
           direction: 'TD',
           source_of_truth: false,
         },

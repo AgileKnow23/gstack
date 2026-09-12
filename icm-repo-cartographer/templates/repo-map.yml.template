@@ -146,11 +146,11 @@ risk_markers:
   externally_reachable: []
 
 # ─── Generated map metadata ──────────────────────────────────────────────────
-# Rendered by `bun run bin/gstack-agent-map.ts` from this file. Regenerate after
-# every edit here; never hand-edit the output.
+# Rendered from this file into agent-work/generated/agent-map.{mmd,md}. Those
+# paths are fixed tool policy, not settings: a checked-in config may not choose a
+# destination or a filename, because a mistyped one would overwrite files outside
+# the repository. To render elsewhere for a one-off, pass --out <dir> on the
+# command line. Regenerate after every edit here; never hand-edit the output.
 generated_map:
-  output_dir: agent-work/generated
-  mermaid: agent-map.mmd
-  markdown: agent-map.md
   direction: LR
   source_of_truth: false

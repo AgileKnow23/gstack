@@ -1077,9 +1077,16 @@ Five of the six authored files are byte-identical in every repository. Swap
 ### The YAML is the source of truth. The map never is.
 
 `agent-work/generated/` is rendered from `repo-map.yml` by
-`bin/gstack-agent-map.ts`. Both output files lead with a banner saying so, the
+`bin/gstack-agent-map.js`. Both output files lead with a banner saying so, the
 config carries `generated_map.source_of_truth: false` (and the validator refuses
 anything else), and when the two disagree the YAML wins and the map is stale.
+
+The two paths are **fixed tool policy, not configuration**:
+`agent-work/generated/agent-map.mmd` and `agent-work/generated/agent-map.md`. A
+checked-in config has no field for a destination or a filename — a repository map
+that could pick where to write is a file writer, and naming an `output_dir`,
+`mermaid` or `markdown` field fails the parse. `--out <dir>` renders elsewhere for
+a one-off, because that is a person choosing at the moment of running.
 
 Rendering is deterministic — identical YAML produces byte-identical output, with no
 clock, no random, and no absolute paths in it. That is what makes `--check` useful:

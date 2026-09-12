@@ -131,10 +131,38 @@ empty list is a real answer: it says this repository has no such surface.
 
 ## `generated_map`
 
-`output_dir`, `mermaid`, `markdown`, `direction` (a Mermaid direction), and
-`source_of_truth`, which **must be `false`** — the validator refuses anything else.
-That field is not decoration: it is the assertion, in the config itself, that the
-rendered map is a view and never the thing being viewed.
+`direction` (a Mermaid direction) and `source_of_truth`, which **must be `false`**
+— the validator refuses anything else. That field is not decoration: it is the
+assertion, in the config itself, that the rendered map is a view and never the
+thing being viewed.
+
+**There is deliberately no `output_dir`, `mermaid` or `markdown`, and naming one
+fails the parse.** Where artifacts go and what they are called is tool policy:
+
+| Artifact | Path |
+|---|---|
+| Mermaid source | `agent-work/generated/agent-map.mmd` |
+| Readable map | `agent-work/generated/agent-map.md` |
+
+Those were configurable once, and that was the mistake. A checked-in
+`output_dir: ../victim` could overwrite regular files outside the repository, and
+configurable filenames produced filesystem-alias collisions — case on Windows,
+Unicode composition on macOS, a trailing dot on Windows — that no amount of
+normalisation logic closes reliably. **Output location and artifact names are not
+facts about a project**, so the schema no longer lets a repository state them. The
+invalid states are unrepresentable rather than validated.
+
+To render somewhere else for a one-off, pass `--out <dir>` on the command line.
+That is a person choosing at the moment of running, not a file in a repository
+choosing on their behalf; the two filenames stay fixed either way.
+
+## Unknown fields are rejected, never ignored
+
+Every mapping in this schema accepts a fixed key set, and an unrecognised key
+fails the parse naming the field. A silently ignored key is how a config lies: the
+author believes they configured something, the parse succeeds, and the setting
+does nothing. The three retired fields get their own message explaining that they
+are policy now rather than a generic "unknown field".
 
 ## What does not belong here
 

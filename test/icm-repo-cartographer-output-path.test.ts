@@ -104,15 +104,6 @@ function expectRefusedAndIntact(f: Fixture, args: string[] = []): string {
   return r.err;
 }
 
-/** Nothing may be left behind — no artifact, and no temp file either. */
-function expectNothingGenerated(f: Fixture): void {
-  if (!fs.existsSync(f.generated)) return;
-  // If generated/ is itself a link we must not follow it to look inside.
-  if (fs.lstatSync(f.generated).isSymbolicLink()) return;
-  const left = fs.readdirSync(f.generated);
-  expect(left, `files were produced: ${left.join(', ')}`).toEqual([]);
-}
-
 afterAll(() => {
   for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
 });
@@ -124,7 +115,6 @@ describe('the boundary refuses symlinked output components', () => {
     fs.symlinkSync(f.sentinel, f.mermaidTarget, 'file');
 
     const err = expectRefusedAndIntact(f);
-    expect(err).toContain('generated_map.mermaid');
     expect(err).toContain('agent-map.mmd');
     expect(err).toMatch(/deliberately not resolved/i);
     // Only the link is present; no real artifact was produced beside it.
@@ -138,7 +128,7 @@ describe('the boundary refuses symlinked output components', () => {
     fs.symlinkSync(f.sentinel, f.markdownTarget, 'file');
 
     const err = expectRefusedAndIntact(f);
-    expect(err).toContain('generated_map.markdown');
+    expect(err).toContain('agent-map.md');
     expect(fs.readdirSync(f.generated).sort()).toEqual(['agent-map.md']);
   });
 
@@ -177,7 +167,7 @@ describe('the boundary refuses symlinked output components', () => {
     // the link would compare the sentinel's bytes and report about a file
     // somewhere else entirely.
     const err = expectRefusedAndIntact(f, ['--check']);
-    expect(err).toContain('generated_map.mermaid');
+    expect(err).toContain('agent-map.mmd');
   });
 
   test.skipIf(!SYMLINKS)('a DANGLING symlink is still refused — proof the check never resolves', () => {
@@ -189,7 +179,7 @@ describe('the boundary refuses symlinked output components', () => {
     // would treat the path as free and write straight through the link.
     expect(fs.existsSync(f.mermaidTarget)).toBe(false);
     const err = expectRefusedAndIntact(f);
-    expect(err).toContain('generated_map.mermaid');
+    expect(err).toContain('agent-map.mmd');
   });
 });
 
@@ -235,46 +225,96 @@ describe('ordinary output still works', () => {
   });
 });
 
-describe('Mermaid and Markdown must be different files', () => {
-  test('identical filenames fail, and no generated directory is created', () => {
-    const f = fixture(YAML.replace('markdown: agent-map.md', 'markdown: agent-map.mmd'));
+describe('the config cannot direct writes anywhere', () => {
+  // Both live findings came from letting a checked-in file choose destinations
+  // and filenames. The fields are gone, so these are parse failures now rather
+  // than path-validation outcomes — and a parse failure happens before mkdir.
+  const retired: Array<[string, string, string]> = [
+    ['output_dir', 'output_dir: ../victim', 'generated_map.output_dir'],
+    ['mermaid', 'mermaid: evil.mmd', 'generated_map.mermaid'],
+    ['markdown', 'markdown: evil.md', 'generated_map.markdown'],
+  ];
+
+  test.each(retired)('generated_map.%s in a checked-in config fails the parse', (_name, line, field) => {
+    const f = fixture(YAML.replace('  direction: LR', `  direction: LR\n  ${line}`));
 
     const r = runAgentMapCli(CLI, [], f.repo);
     expect(r.code).toBe(2);
     expect(r.err).toContain('invalid config');
-    expect(r.err).toContain('generated_map.mermaid');
-    expect(r.err).toContain('generated_map.markdown');
-    expect(r.err).toContain('are the same filename');
-    expect(r.err).toMatch(/each artifact needs its own filename/i);
-    // Rejected at parse time, so mkdir never ran.
+    expect(r.err).toContain(field);
+    expect(r.err).toMatch(/remove it/i);
+    expect(r.err).toMatch(/fixed tool policy/i);
+    // Rejected before anything is created, and the sentinel outside is untouched.
     expect(fs.existsSync(f.generated)).toBe(false);
+    expect(fs.readFileSync(f.sentinel, 'utf-8')).toBe(SENTINEL_BODY);
   });
 
-  test('a case-only collision fails — gstack supports Windows', () => {
-    const f = fixture(YAML.replace('markdown: agent-map.md', 'markdown: AGENT-MAP.MMD'));
+  test('output_dir pointing at a sibling directory cannot overwrite regular files', () => {
+    // The exact reported scenario: two ordinary regular files in a sibling
+    // directory, no symlink involved anywhere.
+    const f = fixture(YAML.replace('  direction: LR', '  direction: LR\n  output_dir: ../victim'));
+    const victim = path.join(f.repo, '..', 'victim');
+    fs.mkdirSync(victim, { recursive: true });
+    fs.writeFileSync(path.join(victim, 'agent-map.mmd'), 'VICTIM-1\n');
+    fs.writeFileSync(path.join(victim, 'agent-map.md'), 'VICTIM-2\n');
 
     const r = runAgentMapCli(CLI, [], f.repo);
     expect(r.code).toBe(2);
-    expect(r.err).toContain('generated_map.mermaid');
-    expect(r.err).toContain('generated_map.markdown');
-    expect(r.err).toMatch(/differ only in case/i);
+    expect(fs.readFileSync(path.join(victim, 'agent-map.mmd'), 'utf-8')).toBe('VICTIM-1\n');
+    expect(fs.readFileSync(path.join(victim, 'agent-map.md'), 'utf-8')).toBe('VICTIM-2\n');
     expect(fs.existsSync(f.generated)).toBe(false);
   });
 
-  test('distinct names of the operator’s choosing still render both artifacts', () => {
-    const f = fixture(
-      YAML.replace('mermaid: agent-map.mmd', 'mermaid: context.mmd').replace(
-        'markdown: agent-map.md',
-        'markdown: context.md',
-      ),
-    );
-
+  test('a valid config renders exactly the two fixed canonical files', () => {
+    const f = fixture();
     expect(runAgentMapCli(CLI, [], f.repo).code).toBe(0);
-    expect(fs.readdirSync(f.generated).sort()).toEqual(['context.md', 'context.mmd']);
-    expect(runAgentMapCli(CLI, ['--check'], f.repo).code).toBe(0);
+    expect(fs.readdirSync(f.generated).sort()).toEqual(['agent-map.md', 'agent-map.mmd']);
   });
 });
 
+describe('--out is the only way to write elsewhere, and it is a person asking', () => {
+  test('it renders the same two fixed names into the supplied directory', () => {
+    const f = fixture();
+    const elsewhere = path.join(f.dir, 'elsewhere');
+
+    const r = runAgentMapCli(CLI, ['--out', elsewhere], f.repo);
+    expect(r.code, r.err).toBe(0);
+    expect(fs.readdirSync(elsewhere).sort()).toEqual(['agent-map.md', 'agent-map.mmd']);
+    // The canonical location is untouched: --out redirects, it does not duplicate.
+    expect(fs.existsSync(f.generated)).toBe(false);
+  });
+
+  test('--check works against the explicit directory too', () => {
+    const f = fixture();
+    const elsewhere = path.join(f.dir, 'elsewhere-check');
+    expect(runAgentMapCli(CLI, ['--out', elsewhere], f.repo).code).toBe(0);
+    expect(runAgentMapCli(CLI, ['--out', elsewhere, '--check'], f.repo).code).toBe(0);
+  });
+
+  test.skipIf(!SYMLINKS)('the symlink boundary still applies under --out', () => {
+    const f = fixture();
+    const elsewhere = path.join(f.dir, 'elsewhere-symlink');
+    fs.mkdirSync(elsewhere, { recursive: true });
+    fs.symlinkSync(f.sentinel, path.join(elsewhere, 'agent-map.mmd'), 'file');
+
+    const r = runAgentMapCli(CLI, ['--out', elsewhere], f.repo);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('refusing to use a symlinked path component');
+    expect(fs.readFileSync(f.sentinel, 'utf-8')).toBe(SENTINEL_BODY);
+  });
+
+  test.skipIf(!SYMLINKS)('--check under --out refuses a symlink before reading it', () => {
+    const f = fixture();
+    const elsewhere = path.join(f.dir, 'elsewhere-symlink-check');
+    fs.mkdirSync(elsewhere, { recursive: true });
+    fs.symlinkSync(f.sentinel, path.join(elsewhere, 'agent-map.md'), 'file');
+
+    const r = runAgentMapCli(CLI, ['--out', elsewhere, '--check'], f.repo);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('refusing to use a symlinked path component');
+    expect(fs.readFileSync(f.sentinel, 'utf-8')).toBe(SENTINEL_BODY);
+  });
+});
 describe('the resolver, directly', () => {
   test('it reports the field and the offending component, not a generic message', () => {
     if (!SYMLINKS) return;
@@ -284,31 +324,24 @@ describe('the resolver, directly', () => {
 
     let thrown: unknown;
     try {
-      resolveOutputPlan({
-        root: f.repo,
-        outDir: f.generated,
-        mermaid: 'agent-map.mmd',
-        markdown: 'agent-map.md',
-      });
+      resolveOutputPlan({ root: f.repo, outDir: f.generated });
     } catch (err) {
       thrown = err;
     }
     expect(thrown).toBeInstanceOf(OutputPathError);
     const err = thrown as OutputPathError;
-    expect(err.field).toBe('generated_map.markdown');
+    // The resolver takes no filenames any more — they are policy — so it reports
+    // the override a person would reach for instead of a YAML key that is gone.
+    expect(err.field).toContain('--out');
+    expect(err.field).toContain('agent-map.md');
     expect(err.offendingPath).toBe(f.markdownTarget);
   });
 
   test('a clean tree resolves to two absolute targets inside the output directory', () => {
     const f = fixture();
-    const plan = resolveOutputPlan({
-      root: f.repo,
-      outDir: f.generated,
-      mermaid: 'agent-map.mmd',
-      markdown: 'agent-map.md',
-    });
+    const plan = resolveOutputPlan({ root: f.repo, outDir: f.generated });
     expect(plan.outDir).toBe(path.resolve(f.generated));
-    expect(plan.targets.map((t) => t.field)).toEqual(['generated_map.mermaid', 'generated_map.markdown']);
+    expect(plan.targets.map((t) => path.basename(t.file))).toEqual(['agent-map.mmd', 'agent-map.md']);
     for (const target of plan.targets) {
       expect(path.isAbsolute(target.file)).toBe(true);
       expect(path.relative(plan.outDir, target.file).startsWith('..')).toBe(false);
@@ -329,16 +362,17 @@ describe('the resolver, directly', () => {
     expect(() => assertNoSymlinkOnPath(f.repo, f.mermaidTarget, 'generated_map.mermaid')).not.toThrow();
   });
 
-  test('lexical escape is still refused by the same resolver', () => {
+  test('there is no longer any way to ask for a filename outside the directory', () => {
+    // The lexical-escape case used to be reachable by configuring a filename with
+    // a separator in it. The resolver no longer accepts filenames at all, so the
+    // whole class is gone rather than guarded: both targets are always the two
+    // fixed names joined to the directory.
     const f = fixture();
-    expect(() =>
-      resolveOutputPlan({
-        root: f.repo,
-        outDir: f.generated,
-        mermaid: path.join('..', '..', 'escape.mmd'),
-        markdown: 'agent-map.md',
-      }),
-    ).toThrow(OutputPathError);
+    const plan = resolveOutputPlan({ root: f.repo, outDir: f.generated });
+    for (const target of plan.targets) {
+      expect(path.dirname(target.file)).toBe(path.resolve(f.generated));
+      expect(['agent-map.mmd', 'agent-map.md']).toContain(path.basename(target.file));
+    }
   });
 
   test('writeGeneratedFile refuses to write through a link that appears late', () => {

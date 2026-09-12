@@ -34,6 +34,9 @@ import {
   REPO_MAP_SCHEMA,
   RISK_MARKER_KEYS,
   GENERATED_BANNER,
+  GENERATED_DIR,
+  GENERATED_MERMAID,
+  GENERATED_MARKDOWN,
 } from '../lib/agent-map';
 
 const ROOT = path.join(import.meta.dir, '..');
@@ -732,81 +735,75 @@ describe('the CLI refuses a duplicate deploy gate before writing anything', () =
   });
 });
 
-describe('P2 — generated output cannot escape the output directory', () => {
-  const escapes: Array<[string, string]> = [
-    ['parent traversal', '../../README.md'],
-    ['single parent', '../escape.md'],
-    ['nested path', 'sub/agent-map.md'],
-    ['posix absolute', '/etc/agent-map.md'],
-    ['windows absolute', 'C:\\Windows\\agent-map.md'],
-    ['bare dotdot', '..'],
+describe('the schema cannot choose where output goes, or what it is called', () => {
+  // The design correction: output location and artifact names are not project
+  // facts. They were configurable once and that produced two separate findings —
+  // `output_dir: ../victim` overwriting files outside the repository, and
+  // filesystem-alias collisions between configurable filenames. Rather than adding
+  // more path and normalisation logic, the fields are gone. Invalid states are
+  // unrepresentable instead of validated.
+  const retired: Array<[string, unknown]> = [
+    ['output_dir', '../victim'],
+    ['mermaid', 'evil.mmd'],
+    ['markdown', 'evil.md'],
   ];
 
-  test.each(escapes)('a %s in generated_map.markdown is refused at parse time', (_label, value) => {
+  test.each(retired)('generated_map.%s is refused as a retired field', (field, value) => {
     const err = expectError(
-      mutate((d) => (d.generated_map.markdown = value)),
-      'generated_map.markdown',
-      'must be a bare filename',
+      mutate((d) => (d.generated_map[field as string] = value)),
+      `generated_map.${field}`,
+      'remove it',
+      'fixed tool policy',
     );
-    expect(err.message).toMatch(/silently overwritten/i);
-    expect(err.message).toMatch(/put the directory in output_dir/i);
+    // The message must explain, not just refuse: an author who wanted this needs
+    // to know where the artifacts go now and what the supported override is.
+    expect(err.message).toMatch(/agent-map\.(mmd|md)|agent-work\/generated/);
   });
 
-  test.each(escapes)('a %s in generated_map.mermaid is refused at parse time', (_label, value) => {
-    expectError(
-      mutate((d) => (d.generated_map.mermaid = value)),
-      'generated_map.mermaid',
-      'must be a bare filename',
+  test('the retired output_dir explains the override and the danger', () => {
+    const err = expectError(
+      mutate((d) => (d.generated_map.output_dir = '../victim')),
+      'generated_map.output_dir',
+      'remove it',
     );
+    expect(err.message).toContain('--out <dir>');
+    expect(err.message).toMatch(/overwrite files\s+outside the repository/i);
   });
 
-  test('an ordinary filename is still accepted', () => {
-    const map = parseRepoMap(mutate((d) => (d.generated_map.markdown = 'context-map.md')));
-    expect(map.generated_map.markdown).toBe('context-map.md');
+  test('generated_map keeps only the two project-relevant fields', () => {
+    const map = parseRepoMap(YAML);
+    expect(Object.keys(map.generated_map).sort()).toEqual(['direction', 'source_of_truth']);
+    expect(map.generated_map.source_of_truth).toBe(false);
   });
 
-  test('no unrelated file is overwritten — the CLI leaves a sentinel untouched', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'icm-escape-'));
-    try {
-      // A file the tool has no business touching, two levels above the output dir.
-      const sentinel = path.join(dir, 'README.md');
-      const original = '# untouched\n';
-      fs.writeFileSync(sentinel, original);
-
-      fs.mkdirSync(path.join(dir, 'agent-work'), { recursive: true });
-      fs.writeFileSync(
-        path.join(dir, 'agent-work', 'repo-map.yml'),
-        mutate((d) => (d.generated_map.mermaid = '../../README.md')),
-      );
-
-      const r = runAgentMapCli(path.join(ROOT, 'bin', 'gstack-agent-map.js'), [], dir);
-
-      expect(r.code).toBe(2);
-      expect(r.err).toContain('generated_map.mermaid');
-      // The property that matters, asserted directly rather than inferred from
-      // the exit code: the file on disk is byte-for-byte what it was.
-      expect(fs.readFileSync(sentinel, 'utf-8')).toBe(original);
-      expect(fs.existsSync(path.join(dir, 'agent-work/generated'))).toBe(false);
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  test('the CLI routes both modes through the central output resolver', () => {
-    // Defence in depth: parse-time validation covers today's config surface, but
-    // --out is a flag and output_dir is configurable, so the claim worth making
-    // is about where bytes actually land. The lexical check plus the filesystem
-    // component walk now live in one place; this pins that the CLI uses it, and
-    // uses it before it reads for --check or writes anything.
-    const cli = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-agent-map.ts'), 'utf-8');
-    expect(cli).toContain('resolveOutputPlan');
-    expect(cli).toContain('writeGeneratedFile');
-
-    const resolved = cli.indexOf('resolveOutputPlan({');
-    expect(resolved).toBeGreaterThan(-1);
-    expect(resolved, 'resolution must precede the --check read').toBeLessThan(cli.indexOf('if (checkOnly)'));
-    expect(resolved, 'resolution must precede the write loop').toBeLessThan(cli.indexOf('writeGeneratedFile(file, content)'));
-    // The raw write is gone: nothing may bypass the no-follow write helper.
-    expect(cli).not.toContain('fs.writeFileSync(file, content)');
+  test('the fixed policy is exported once, so nothing can drift from it', () => {
+    expect(GENERATED_DIR).toBe('agent-work/generated');
+    expect(GENERATED_MERMAID).toBe('agent-map.mmd');
+    expect(GENERATED_MARKDOWN).toBe('agent-map.md');
   });
 });
+
+describe('unknown fields are rejected, never ignored', () => {
+  // A silently ignored key is how a config lies: the author believes they
+  // configured something, the parse succeeds, and the setting does nothing.
+  const cases: Array<[string, (d: any) => void, string]> = [
+    ['top level', (d) => (d.surprise = 1), 'surprise'],
+    ['project', (d) => (d.project.owner = 'someone'), 'project.owner'],
+    ['project.stack', (d) => (d.project.stack.editor = 'vim'), 'project.stack.editor'],
+    ['a source of truth', (d) => (d.sources_of_truth[0].author = 'x'), 'sources_of_truth[0].author'],
+    ['a context', (d) => (d.contexts[0].owner = 'x'), 'contexts[0].owner'],
+    ['boundaries', (d) => (d.boundaries.forbidden = []), 'boundaries.forbidden'],
+    ['a protected boundary', (d) => (d.boundaries.protected[0].severity = 'high'), 'boundaries.protected[0].severity'],
+    ['commands', (d) => (d.commands.publish = 'npm publish'), 'commands.publish'],
+    ['a task class', (d) => (d.task_classes[0].priority = 1), 'task_classes[0].priority'],
+    ['a gate', (d) => (d.gates[0].sla = '1d'), 'gates[0].sla'],
+    ['generated_map', (d) => (d.generated_map.colour = 'blue'), 'generated_map.colour'],
+  ];
+
+  test.each(cases)('an unknown key in %s fails, naming the field', (_where, edit, field) => {
+    const err = expectError(mutate(edit), field, 'unknown field');
+    expect(err.message).toMatch(/This schema accepts only:/);
+    expect(err.message).toMatch(/silently does nothing is worse/i);
+  });
+});
+

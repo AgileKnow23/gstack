@@ -182,8 +182,14 @@ The only file that carries project facts. Field-by-field guidance is in
 - **Every gate is non-self-clearable and there is no field to say otherwise.** If a
   step can clear itself automatically it is a check, not a gate — leave it out of
   `gates:` and let a task class or a command carry it.
-- `generated_map.mermaid` and `generated_map.markdown` are bare filenames. The
-  directory is `output_dir`, and nothing this tool writes may land outside it.
+- `generated_map` carries only `direction` and `source_of_truth: false`. Where the
+  map is written and what it is called is fixed tool policy —
+  `agent-work/generated/agent-map.{mmd,md}` — and naming an `output_dir`,
+  `mermaid` or `markdown` field fails the parse. A config that could pick a
+  destination is a file writer, not a repository map.
+- **Unknown fields fail the parse.** A key this schema does not know is never
+  ignored, because a setting that silently does nothing is worse than one that
+  errors.
 
 ## Phase 6 — Generate the map
 
@@ -202,9 +208,14 @@ around the validator.** Re-run until it exits 0.
 `--check` renders and compares without writing. Use it to confirm the committed map
 still matches the config after someone edits the YAML.
 
-It also refuses to write anything outside `generated_map.output_dir`, and it checks
-the resolved paths before the first byte is written — the failure it is preventing
-is overwriting a file nobody asked it to touch.
+It writes exactly two files, always named `agent-map.mmd` and `agent-map.md`, into
+`agent-work/generated/`. It checks every existing component of those paths before
+the first byte is written and refuses a symlink anywhere along the way — the
+failure it is preventing is overwriting a file nobody asked it to touch.
+
+`--out <dir>` renders into a different directory. That is an operator override for
+a one-off; the config has no say in the destination, and the filenames do not
+change.
 
 **Invoke the `.js`, not the `.ts`.** `gstack-agent-map.js` is the distributable
 build: a single self-contained file with its parser inlined. `setup` delivers

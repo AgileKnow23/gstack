@@ -31,6 +31,26 @@ export const RISK_MARKER_KEYS = ['auth', 'tenant_isolation', 'billing', 'externa
 
 export const PROJECT_FORMS = ['context-map', 'pipeline', 'composed'] as const;
 
+/**
+ * Where generated artifacts go, and what they are called. **Tool policy, not
+ * project configuration.**
+ *
+ * These were configurable once, and that was the mistake: a checked-in
+ * `output_dir: ../victim` could overwrite regular files outside the repository,
+ * and configurable filenames produced filesystem-alias collisions that no amount
+ * of case- or Unicode-normalisation logic could close on Windows and macOS alike.
+ * Output location and artifact names are not facts about a project, so the schema
+ * no longer lets a repository state them. The invalid states are now
+ * unrepresentable rather than validated.
+ *
+ * An operator can still render elsewhere with an explicit `--out` on the command
+ * line, because that is a person choosing at the moment of running — not a file
+ * in a repository choosing for them.
+ */
+export const GENERATED_DIR = 'agent-work/generated';
+export const GENERATED_MERMAID = 'agent-map.mmd';
+export const GENERATED_MARKDOWN = 'agent-map.md';
+
 export const GENERATED_BANNER =
   'GENERATED FROM agent-work/repo-map.yml — DO NOT EDIT, AND DO NOT TREAT AS SOURCE OF TRUTH.';
 
@@ -94,9 +114,6 @@ export interface RepoMap {
   gates: Gate[];
   risk_markers: Record<string, string[]>;
   generated_map: {
-    output_dir: string;
-    mermaid: string;
-    markdown: string;
     direction: string;
     source_of_truth: boolean;
   };
@@ -119,6 +136,47 @@ const fail = (field: string, message: string): never => {
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * Reject keys this schema does not know.
+ *
+ * Silently ignoring an unknown key is how a config lies: an author writes
+ * `output_dir:` or mistypes `sources_of_truth`, the parse succeeds, and the
+ * setting they thought they made does nothing. Worse, a field that USED to be
+ * honoured keeps sitting in the file looking load-bearing. Naming the retired
+ * fields explicitly is what turns this from a syntax complaint into an
+ * explanation.
+ */
+const RETIRED: Record<string, string> = {
+  'generated_map.output_dir':
+    'the output directory is fixed tool policy now. Generated files always go to ' +
+    `${GENERATED_DIR}/. To render somewhere else for a one-off, pass --out <dir> on the command line — ` +
+    'a checked-in config may not choose a destination, because a mistyped one can overwrite files ' +
+    'outside the repository.',
+  'generated_map.mermaid':
+    `the Mermaid filename is fixed tool policy now: ${GENERATED_MERMAID}. Configurable names produced ` +
+    'filesystem-alias collisions on Windows and macOS, so the schema no longer accepts one.',
+  'generated_map.markdown':
+    `the Markdown filename is fixed tool policy now: ${GENERATED_MARKDOWN}. Configurable names produced ` +
+    'filesystem-alias collisions on Windows and macOS, so the schema no longer accepts one.',
+};
+
+function rejectUnknownKeys(value: Record<string, unknown>, at: string, known: readonly string[]): void {
+  for (const key of Object.keys(value)) {
+    if (known.includes(key)) continue;
+    const dotted = at === '' ? key : `${at}.${key}`;
+    const retired = RETIRED[dotted];
+    if (retired) {
+      fail(dotted, `remove it — ${retired}`);
+    }
+    fail(
+      dotted,
+      `unknown field. This schema accepts only: ${known.join(', ')}. An unknown key is never ignored, ` +
+        `because a setting that silently does nothing is worse than one that fails. Check the spelling, ` +
+        `or remove it.`,
+    );
+  }
+}
 
 function requireString(value: unknown, field: string, hint: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
@@ -159,6 +217,19 @@ export function parseRepoMap(text: string): RepoMap {
   }
   const doc = raw as Record<string, unknown>;
 
+  rejectUnknownKeys(doc, '', [
+    'schema',
+    'project',
+    'sources_of_truth',
+    'contexts',
+    'boundaries',
+    'commands',
+    'task_classes',
+    'gates',
+    'risk_markers',
+    'generated_map',
+  ]);
+
   if (doc.schema !== REPO_MAP_SCHEMA) {
     fail(
       'schema',
@@ -172,6 +243,18 @@ export function parseRepoMap(text: string): RepoMap {
     fail('project', `expected a mapping with name, form and entry, found ${describe(doc.project)}.`);
   }
   const projectRaw = doc.project as Record<string, unknown>;
+  // `summary` is listed as known so the tailored explanation below fires instead
+  // of a generic unknown-field complaint — the reason matters more than the rule.
+  rejectUnknownKeys(projectRaw, 'project', ['name', 'form', 'entry', 'stack', 'summary']);
+  if (isPlainObject(projectRaw.stack)) {
+    rejectUnknownKeys(projectRaw.stack, 'project.stack', [
+      'languages',
+      'runtime',
+      'frameworks',
+      'datastore',
+      'hosting',
+    ]);
+  }
   const name = requireString(projectRaw.name, 'project.name', 'This is the repository name.');
   const form = requireString(projectRaw.form, 'project.form', `One of: ${PROJECT_FORMS.join(', ')}.`);
   if (!(PROJECT_FORMS as readonly string[]).includes(form)) {
@@ -197,6 +280,7 @@ export function parseRepoMap(text: string): RepoMap {
     const at = `sources_of_truth[${i}]`;
     if (!isPlainObject(entry)) fail(at, `expected a mapping, found ${describe(entry)}.`);
     const e = entry as Record<string, unknown>;
+    rejectUnknownKeys(e, at, ['id', 'path', 'holds', 'read_when']);
     return {
       id: requireString(e.id, `${at}.id`, 'A short stable id; contexts reference it.'),
       path: requireString(e.path, `${at}.path`, 'A document that exists today.'),
@@ -242,6 +326,9 @@ export function parseRepoMap(text: string): RepoMap {
     const at = `gates[${i}]`;
     if (!isPlainObject(entry)) fail(at, `expected a mapping, found ${describe(entry)}.`);
     const e = entry as Record<string, unknown>;
+    // self_clearable gets its own message below, so it is listed as known here
+    // and then rejected with the explanation rather than a generic complaint.
+    rejectUnknownKeys(e, at, ['id', 'when', 'requires', 'authority', 'self_clearable']);
     if ('self_clearable' in e) {
       fail(
         `${at}.self_clearable`,
@@ -296,6 +383,7 @@ export function parseRepoMap(text: string): RepoMap {
     const at = `contexts[${i}]`;
     if (!isPlainObject(entry)) fail(at, `expected a mapping, found ${describe(entry)}.`);
     const e = entry as Record<string, unknown>;
+    rejectUnknownKeys(e, at, ['name', 'purpose', 'paths', 'sources_of_truth', 'depends_on', 'risk']);
     const ctxName = requireString(e.name, `${at}.name`, 'The word the team actually uses.');
     const paths = requireStringList(e.paths, `${at}.paths`, 'Path prefixes owned by this context.');
     if (paths.length === 0) {
@@ -361,6 +449,7 @@ export function parseRepoMap(text: string): RepoMap {
     fail('boundaries', `expected a mapping with "allowed" and "protected".`);
   }
   const boundariesRaw = doc.boundaries as Record<string, unknown>;
+  rejectUnknownKeys(boundariesRaw, 'boundaries', ['allowed', 'protected']);
   const allowed = requireStringList(boundariesRaw.allowed, 'boundaries.allowed', 'Paths an agent may change under the normal rules.');
   const protectedRaw = boundariesRaw.protected;
   if (protectedRaw !== undefined && protectedRaw !== null && !Array.isArray(protectedRaw)) {
@@ -370,6 +459,7 @@ export function parseRepoMap(text: string): RepoMap {
     const at = `boundaries.protected[${i}]`;
     if (!isPlainObject(entry)) fail(at, `expected a mapping, found ${describe(entry)}.`);
     const e = entry as Record<string, unknown>;
+    rejectUnknownKeys(e, at, ['paths', 'why', 'gate']);
     const gate = requireString(e.gate, `${at}.gate`, `A gate id. Known gates: ${[...gateIds].join(', ')}.`);
     if (!gateIds.has(gate)) {
       fail(`${at}.gate`, `"${gate}" is not a known gate id. Known gates: ${[...gateIds].join(', ')}.`);
@@ -387,6 +477,15 @@ export function parseRepoMap(text: string): RepoMap {
   if (!isPlainObject(doc.commands)) {
     fail('commands', `expected a mapping. Use null for a command this repo does not have.`);
   }
+  rejectUnknownKeys(doc.commands as Record<string, unknown>, 'commands', [
+    'build',
+    'test',
+    'typecheck',
+    'lint',
+    'docs',
+    'deploy',
+    'dev_url',
+  ]);
   const commands: Record<string, string | null> = {};
   for (const [key, value] of Object.entries(doc.commands as Record<string, unknown>)) {
     if (value === null || value === undefined) {
@@ -407,6 +506,7 @@ export function parseRepoMap(text: string): RepoMap {
     const at = `task_classes[${i}]`;
     if (!isPlainObject(entry)) fail(at, `expected a mapping, found ${describe(entry)}.`);
     const e = entry as Record<string, unknown>;
+    rejectUnknownKeys(e, at, ['id', 'when', 'skill', 'gate', 'note']);
     const id = requireString(e.id, `${at}.id`, 'A short stable id for this class of work.');
     let skill: string | null = null;
     if (e.skill !== null && e.skill !== undefined) {
@@ -446,9 +546,16 @@ export function parseRepoMap(text: string): RepoMap {
   }
 
   // ─── generated_map ────────────────────────────────────────────────────────
+  // Two fields, both project-relevant: how to lay the diagram out, and the
+  // standing declaration that the rendered map is not authoritative. Destination
+  // and filenames used to live here and no longer do — see GENERATED_DIR.
   if (!isPlainObject(doc.generated_map)) {
-    fail('generated_map', `expected a mapping with output_dir, mermaid, markdown, direction and source_of_truth.`);
+    fail('generated_map', `expected a mapping with direction and source_of_truth.`);
   }
+  rejectUnknownKeys(doc.generated_map as Record<string, unknown>, 'generated_map', [
+    'direction',
+    'source_of_truth',
+  ]);
   const gm = doc.generated_map as Record<string, unknown>;
   if (gm.source_of_truth !== false) {
     fail(
@@ -456,46 +563,6 @@ export function parseRepoMap(text: string): RepoMap {
       `must be false. The map is rendered FROM this file and is never authoritative — if they disagree, this file wins.`,
     );
   }
-  // Output confinement, part one: these two values come from repository YAML and
-  // name files that get WRITTEN. A value like "../../README.md" would normalize
-  // outside output_dir and silently overwrite an unrelated file, so a filename is
-  // required to be a filename — no separators, no traversal, no drive letter.
-  // The CLI re-checks the resolved paths before writing; this is the cheap,
-  // explain-yourself layer that catches it at parse time.
-  const outputName = (key: 'mermaid' | 'markdown'): string => {
-    const value = requireString(gm[key], `generated_map.${key}`, `A bare filename such as "agent-map.${key === 'mermaid' ? 'mmd' : 'md'}".`);
-    if (/[\\/]/.test(value) || value === '.' || value === '..' || /^[A-Za-z]:/.test(value)) {
-      fail(
-        `generated_map.${key}`,
-        `"${value}" must be a bare filename, not a path. Anything with a separator, a drive letter or ` +
-          `a ".." component can resolve outside generated_map.output_dir, and these files are written, ` +
-          `not read — an unrelated file would be silently overwritten. Put the directory in output_dir.`,
-      );
-    }
-    return value;
-  };
-
-  // Two artifacts, two files. Given the same name both targets resolve to one
-  // path: a run reports success twice, the second write overwrites the first, and
-  // every later --check reports drift forever because it compares one file
-  // against two different expected contents. Case-insensitively too — gstack
-  // supports Windows, where agent-map.md and AGENT-MAP.MD are the same file.
-  const mermaidName = outputName('mermaid');
-  const markdownName = outputName('markdown');
-  if (mermaidName.toLowerCase() === markdownName.toLowerCase()) {
-    const identical = mermaidName === markdownName;
-    fail(
-      'generated_map.mermaid',
-      `"${mermaidName}" and generated_map.markdown "${markdownName}" ` +
-        (identical
-          ? 'are the same filename.'
-          : 'differ only in case, which is the same file on Windows and macOS.') +
-        ` Each artifact needs its own filename — the Mermaid source and the readable map are two ` +
-        `separate files, and sharing a name means one silently overwrites the other and --check can ` +
-        `never pass. Give generated_map.mermaid and generated_map.markdown distinct names.`,
-    );
-  }
-
   const direction = requireString(gm.direction, 'generated_map.direction', 'A Mermaid direction such as LR or TD.');
   if (!['LR', 'RL', 'TD', 'TB', 'BT'].includes(direction)) {
     fail('generated_map.direction', `"${direction}" is not a Mermaid direction. Use LR, RL, TD, TB or BT.`);
@@ -517,9 +584,6 @@ export function parseRepoMap(text: string): RepoMap {
     gates,
     risk_markers: riskMarkers,
     generated_map: {
-      output_dir: requireString(gm.output_dir, 'generated_map.output_dir', 'Where the rendered files go.'),
-      mermaid: mermaidName,
-      markdown: markdownName,
       direction,
       source_of_truth: false,
     },

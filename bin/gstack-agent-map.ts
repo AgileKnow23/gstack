@@ -6,7 +6,11 @@
  *
  * Options
  *   --config <path>   repo-map.yml to read (default: agent-work/repo-map.yml)
- *   --out <dir>       output directory (default: generated_map.output_dir)
+ *   --out <dir>       render into this directory instead of the canonical one.
+ *                     An explicit operator override: a checked-in config cannot
+ *                     choose a destination, because a mistyped one would overwrite
+ *                     files outside the repository. The two filenames are fixed
+ *                     either way.
  *   --check           render and compare, write nothing; exit 1 if the committed
  *                     output differs from what the config produces
  *   --stdout          print the Mermaid source and exit (no files written)
@@ -17,7 +21,15 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { parseRepoMap, renderMermaid, renderMarkdown, RepoMapError } from '../lib/agent-map';
+import {
+  parseRepoMap,
+  renderMermaid,
+  renderMarkdown,
+  RepoMapError,
+  GENERATED_DIR,
+  GENERATED_MERMAID,
+  GENERATED_MARKDOWN,
+} from '../lib/agent-map';
 import { resolveOutputPlan, writeGeneratedFile, OutputPathError } from '../lib/agent-map-output';
 
 const argv = process.argv.slice(2);
@@ -47,10 +59,10 @@ if (!fs.existsSync(configPath)) {
 
 let rendered: { mermaid: string; markdown: string };
 let outDir: string;
-let mermaidName: string;
-let markdownName: string;
 /** The repository being mapped: the directory that contains agent-work/. */
 let repoRoot: string;
+/** True when a person asked for somewhere else on the command line. */
+const explicitOut = flag('--out');
 
 try {
   const text = fs.readFileSync(configPath, 'utf-8');
@@ -58,9 +70,10 @@ try {
   const mermaid = renderMermaid(map);
   rendered = { mermaid, markdown: renderMarkdown(map, mermaid) };
   repoRoot = path.dirname(path.dirname(configPath));
-  outDir = path.resolve(flag('--out') ?? path.join(repoRoot, map.generated_map.output_dir));
-  mermaidName = map.generated_map.mermaid;
-  markdownName = map.generated_map.markdown;
+  // The canonical location is fixed tool policy. The config has no say in it —
+  // there is no field to read — so the only way to write elsewhere is an operator
+  // typing --out at the moment of running.
+  outDir = path.resolve(explicitOut ?? path.join(repoRoot, GENERATED_DIR));
 } catch (err) {
   if (err instanceof RepoMapError) {
     // Actionable by construction: the message carries the field and the fix.
@@ -87,12 +100,10 @@ if (toStdout) {
  */
 let plan: ReturnType<typeof resolveOutputPlan>;
 try {
-  plan = resolveOutputPlan({ root: repoRoot, outDir, mermaid: mermaidName, markdown: markdownName });
+  plan = resolveOutputPlan({ root: repoRoot, outDir });
 } catch (err) {
   if (err instanceof OutputPathError) {
-    console.error(
-      `gstack-agent-map: invalid config\n  ${err.field} — ${err.message}\n  File: ${configPath}`,
-    );
+    console.error(`gstack-agent-map: unsafe output path\n  ${err.message}\n  Config: ${configPath}`);
     process.exit(2);
   }
   throw err;
