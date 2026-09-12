@@ -125,13 +125,15 @@ task_classes:
     note: /ship may prepare a PR; merging and deploying need explicit user authorization
 
 # ─── Human gates ─────────────────────────────────────────────────────────────
-# An agent never clears its own gate.
+# Every gate is a HUMAN decision point, and none of them is self-clearable. That
+# is not a setting — there is no self_clearable field, and declaring one is an
+# error. If a step can clear itself automatically it is a check, not a gate:
+# leave it out of this list and let a task class or a command carry it.
 gates:
   - id: deploy
     when: any merge to the release branch, deployment, or production configuration change
     requires: explicit user authorization, every time — prior approval never carries forward
     authority: user
-    self_clearable: false
 
 # ─── Risk markers ────────────────────────────────────────────────────────────
 # Fixed four-key set. Each maps to path fragments or literals that mark a change

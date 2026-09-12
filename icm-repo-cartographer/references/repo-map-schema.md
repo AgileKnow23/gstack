@@ -102,9 +102,19 @@ deliberately does not restate it.
 
 ## `gates`
 
-Each gate: `id`, `when`, `requires`, `authority`, `self_clearable`.
+Each gate: `id`, `when`, `requires`, `authority`.
 
-The `deploy` gate is mandatory, with `authority: user` and `self_clearable: false`.
+**There is deliberately no `self_clearable` field, and declaring one fails the
+parse.** Every gate is non-self-clearable by construction rather than by
+configuration. The alternative — a boolean a project can flip — means a gate can
+guard a boundary while the canonical config says an agent may clear it, which is
+an approval boundary that exists only on paper.
+
+The test for whether something belongs here: **if it can clear itself
+automatically, it is a check, not a gate.** Checks belong in `commands:` or in a
+task class; `gates:` is for the moments a person decides.
+
+The `deploy` gate is mandatory, with `authority: user`.
 Merging and deploying require explicit user authorization every time; approval never
 carries forward. Add gates for whatever else this project treats as one-way —
 migrations against a shared database, anything that reaches a customer, anything

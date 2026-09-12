@@ -1,0 +1,12 @@
+{
+  "built_by": "bun run build:agent-map",
+  "entry": "bin/gstack-agent-map.ts",
+  "output": "bin/gstack-agent-map.js",
+  "sources": {
+    "bin/gstack-agent-map.ts": "ac76b2104d5366871e8d591e967607e744799ba27f577cbc223e99c4bd692110",
+    "lib/agent-map.ts": "9c91e889528ffd945a149b2f416b229c6e3c592138a805a361149f3bb1c64467"
+  },
+  "bundled_dependencies": {
+    "yaml": "2.8.1"
+  }
+}

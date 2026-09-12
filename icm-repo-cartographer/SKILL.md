@@ -606,12 +606,17 @@ The only file that carries project facts. Field-by-field guidance is in
 - `task_classes` ships with the default policy. Adjust a class only with a reason
   in its `note`.
 - `risk_markers` keys are fixed at four. An empty list is a real answer.
-- The `deploy` gate is mandatory, `authority: user`, `self_clearable: false`.
+- The `deploy` gate is mandatory, with `authority: user`.
+- **Every gate is non-self-clearable and there is no field to say otherwise.** If a
+  step can clear itself automatically it is a check, not a gate — leave it out of
+  `gates:` and let a task class or a command carry it.
+- `generated_map.mermaid` and `generated_map.markdown` are bare filenames. The
+  directory is `output_dir`, and nothing this tool writes may land outside it.
 
 ## Phase 6 — Generate the map
 
 ```bash
-bun run ~/.claude/skills/gstack/bin/gstack-agent-map.ts --config agent-work/repo-map.yml
+bun run ~/.claude/skills/gstack/bin/gstack-agent-map.js --config agent-work/repo-map.yml
 ```
 
 It writes `agent-work/generated/agent-map.mmd` and `agent-map.md`, both stamped as
@@ -624,6 +629,17 @@ around the validator.** Re-run until it exits 0.
 
 `--check` renders and compares without writing. Use it to confirm the committed map
 still matches the config after someone edits the YAML.
+
+It also refuses to write anything outside `generated_map.output_dir`, and it checks
+the resolved paths before the first byte is written — the failure it is preventing
+is overwriting a file nobody asked it to touch.
+
+**Invoke the `.js`, not the `.ts`.** `gstack-agent-map.js` is the distributable
+build: a single self-contained file with its parser inlined. `setup` delivers
+runtime roots by copying `bin/` and `lib/` without `node_modules`, so the `.ts`
+source would fail there with `Cannot find package`. Source may use dependencies;
+the installed runtime works with exactly the files setup delivers. Contributors
+editing the engine run `bun run build:agent-map` to refresh the artifact.
 
 ## Phase 7 — Walk the workspace cold
 

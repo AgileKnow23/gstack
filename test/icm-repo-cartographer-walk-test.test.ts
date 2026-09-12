@@ -192,7 +192,11 @@ describe('ICM walk test — a cold agent, AGENTS.md plus two reads', () => {
     const deploy = (map.gates as Array<Record<string, unknown>>).find((g) => g.id === 'deploy');
     expect(deploy).toBeDefined();
     expect(deploy!.authority).toBe('user');
-    expect(deploy!.self_clearable).toBe(false);
+    // Non-self-clearability is structural now: there is no field to read, so the
+    // cold agent cannot be told otherwise by the config.
+    for (const gate of map.gates as Array<Record<string, unknown>>) {
+      expect(Object.keys(gate)).not.toContain('self_clearable');
+    }
 
     expect(agent.reads).toEqual(['agent-work/repo-map.yml']);
     expect(agent.reads.length, 'all four answers within AGENTS.md + 2 reads').toBeLessThanOrEqual(2);
@@ -272,7 +276,7 @@ describe('the generated map inside a real workspace', () => {
       const yaml = fs.readFileSync(path.join(scratch, 'agent-work/repo-map.yml'), 'utf-8');
       const truth = parseYaml(yaml) as any;
       const deploy = truth.gates.find((g: any) => g.id === 'deploy');
-      expect(deploy.self_clearable).toBe(false);
+      expect(deploy.authority).toBe('user');
 
       // Regeneration silently discards the tampering — no merge, no negotiation.
       const fresh = renderAgentMap(yaml);
@@ -378,7 +382,6 @@ describe('one reusable engine, one project-specific configuration file', () => {
             when: 'any release',
             requires: 'explicit user authorization, every time — prior approval never carries forward',
             authority: 'user',
-            self_clearable: false,
           },
         ],
         risk_markers: { auth: [], tenant_isolation: [], billing: [], externally_reachable: [] },

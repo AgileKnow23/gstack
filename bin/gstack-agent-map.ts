@@ -71,10 +71,35 @@ if (toStdout) {
   process.exit(0);
 }
 
+/**
+ * Output confinement, part two. parseRepoMap already refuses a filename that is
+ * a path, but --out is a flag and output_dir is config, so the only claim worth
+ * making is about the RESOLVED targets: every file this tool writes lands inside
+ * the resolved output directory. Checked here, before a single byte is written,
+ * because the failure mode is overwriting a file nobody asked us to touch.
+ */
+function insideOutDir(target: string): boolean {
+  const root = path.resolve(outDir);
+  const resolved = path.resolve(target);
+  const rel = path.relative(root, resolved);
+  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
 const targets: Array<[string, string]> = [
   [path.join(outDir, mermaidName), rendered.mermaid],
   [path.join(outDir, markdownName), rendered.markdown],
 ];
+
+const escaping = targets.filter(([file]) => !insideOutDir(file));
+if (escaping.length > 0) {
+  console.error(
+    `gstack-agent-map: refusing to write outside the output directory\n` +
+      escaping.map(([f]) => `  ${f}`).join('\n') +
+      `\n  Output directory: ${path.resolve(outDir)}\n` +
+      `  Every generated file must land inside it. Fix generated_map in ${configPath}, or pass a --out inside it.`,
+  );
+  process.exit(2);
+}
 
 if (checkOnly) {
   const drifted = targets.filter(([file, want]) => {

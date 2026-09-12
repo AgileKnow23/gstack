@@ -64,12 +64,18 @@ export interface TaskClass {
   note?: string;
 }
 
+/**
+ * A gate is a human decision point. There is deliberately no `self_clearable`
+ * field: every gate is non-self-clearable, by construction rather than by
+ * configuration. If something can clear itself automatically it is a check, not
+ * a gate, and must not be represented as one — a gate an agent may clear is an
+ * approval boundary that exists only on paper.
+ */
 export interface Gate {
   id: string;
   when: string;
   requires: string;
   authority: string;
-  self_clearable: boolean;
 }
 
 export interface RepoMap {
@@ -236,15 +242,20 @@ export function parseRepoMap(text: string): RepoMap {
     const at = `gates[${i}]`;
     if (!isPlainObject(entry)) fail(at, `expected a mapping, found ${describe(entry)}.`);
     const e = entry as Record<string, unknown>;
-    if (typeof e.self_clearable !== 'boolean') {
-      fail(`${at}.self_clearable`, `expected true or false, found ${describe(e.self_clearable)}.`);
+    if ('self_clearable' in e) {
+      fail(
+        `${at}.self_clearable`,
+        `remove it. Every gate is non-self-clearable — that is not configurable, because a gate an ` +
+          `agent may clear is an approval boundary that exists only on paper. If this step can clear ` +
+          `itself automatically, it is a check rather than a gate: drop it from gates: and let the ` +
+          `task class or the command that runs it carry the work.`,
+      );
     }
     return {
       id: requireString(e.id, `${at}.id`, 'A short stable id; task classes and boundaries reference it.'),
       when: requireString(e.when, `${at}.when`, 'The condition that reaches this gate.'),
       requires: requireString(e.requires, `${at}.requires`, 'What must happen before work proceeds.'),
       authority: requireString(e.authority, `${at}.authority`, 'Who clears it — normally "user".'),
-      self_clearable: e.self_clearable as boolean,
     };
   });
   // Duplicates FIRST. A Set would silently collapse two `deploy` entries and the
@@ -269,9 +280,6 @@ export function parseRepoMap(text: string): RepoMap {
   const deploy = gates.find((g) => g.id === 'deploy');
   if (!deploy) {
     fail('gates', `must contain a gate with id "deploy". Deployment authority is not optional.`);
-  }
-  if (deploy!.self_clearable !== false) {
-    fail('gates[deploy].self_clearable', `must be false. An agent never clears its own deployment gate.`);
   }
   if (deploy!.authority !== 'user') {
     fail(
@@ -448,6 +456,25 @@ export function parseRepoMap(text: string): RepoMap {
       `must be false. The map is rendered FROM this file and is never authoritative — if they disagree, this file wins.`,
     );
   }
+  // Output confinement, part one: these two values come from repository YAML and
+  // name files that get WRITTEN. A value like "../../README.md" would normalize
+  // outside output_dir and silently overwrite an unrelated file, so a filename is
+  // required to be a filename — no separators, no traversal, no drive letter.
+  // The CLI re-checks the resolved paths before writing; this is the cheap,
+  // explain-yourself layer that catches it at parse time.
+  const outputName = (key: 'mermaid' | 'markdown'): string => {
+    const value = requireString(gm[key], `generated_map.${key}`, `A bare filename such as "agent-map.${key === 'mermaid' ? 'mmd' : 'md'}".`);
+    if (/[\\/]/.test(value) || value === '.' || value === '..' || /^[A-Za-z]:/.test(value)) {
+      fail(
+        `generated_map.${key}`,
+        `"${value}" must be a bare filename, not a path. Anything with a separator, a drive letter or ` +
+          `a ".." component can resolve outside generated_map.output_dir, and these files are written, ` +
+          `not read — an unrelated file would be silently overwritten. Put the directory in output_dir.`,
+      );
+    }
+    return value;
+  };
+
   const direction = requireString(gm.direction, 'generated_map.direction', 'A Mermaid direction such as LR or TD.');
   if (!['LR', 'RL', 'TD', 'TB', 'BT'].includes(direction)) {
     fail('generated_map.direction', `"${direction}" is not a Mermaid direction. Use LR, RL, TD, TB or BT.`);
@@ -470,8 +497,8 @@ export function parseRepoMap(text: string): RepoMap {
     risk_markers: riskMarkers,
     generated_map: {
       output_dir: requireString(gm.output_dir, 'generated_map.output_dir', 'Where the rendered files go.'),
-      mermaid: requireString(gm.mermaid, 'generated_map.mermaid', 'Filename for the Mermaid source.'),
-      markdown: requireString(gm.markdown, 'generated_map.markdown', 'Filename for the readable map.'),
+      mermaid: outputName('mermaid'),
+      markdown: outputName('markdown'),
       direction,
       source_of_truth: false,
     },
@@ -766,7 +793,7 @@ export function renderMarkdown(map: RepoMap, mermaid: string): string {
   for (const gate of map.gates) {
     // Not a table, but the same content, so keep newlines from breaking the list item.
     out.push(
-      `- **${tableCell(gate.id)}** — ${tableCell(gate.when)}. Requires: ${tableCell(gate.requires)} Authority: **${tableCell(gate.authority)}**.`,
+      `- **${tableCell(gate.id)}** — ${tableCell(gate.when)}. Requires: ${tableCell(gate.requires)} Authority: **${tableCell(gate.authority)}**. An agent never clears it.`,
     );
   }
   out.push('');

@@ -155,12 +155,10 @@ gates:
     when: any merge to the release branch, deployment, or production configuration change
     requires: explicit user authorization, every time — prior approval never carries forward
     authority: user
-    self_clearable: false
   - id: migration
     when: any change under db/migrations
     requires: owner approval before the migration is applied to a shared database
     authority: user
-    self_clearable: false
 
 risk_markers:
   auth:

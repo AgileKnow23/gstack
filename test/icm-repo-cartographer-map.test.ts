@@ -24,6 +24,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { parse as parseYaml } from 'yaml';
+import { runAgentMapCli } from './helpers/run-agent-map-cli';
 import {
   parseRepoMap,
   renderMermaid,
@@ -83,11 +84,16 @@ describe('the sample repo-map parses', () => {
     }
   });
 
-  test('the deploy gate is mandatory, user-authorized, and not self-clearable', () => {
+  test('the deploy gate is mandatory and user-authorized', () => {
     const deploy = map.gates.find((g) => g.id === 'deploy')!;
     expect(deploy.authority).toBe('user');
-    expect(deploy.self_clearable).toBe(false);
     expect(deploy.requires).toMatch(/never carries forward/i);
+  });
+
+  test('no gate carries a self-clearable flag — the concept does not exist', () => {
+    for (const gate of map.gates) {
+      expect(Object.keys(gate).sort()).toEqual(['authority', 'id', 'requires', 'when']);
+    }
   });
 
   test('the routing table keeps a no-workflow class', () => {
@@ -310,12 +316,24 @@ describe('invalid configuration fails with an actionable error', () => {
     );
   });
 
-  test('a self-clearable deploy gate is refused', () => {
+  test('declaring self_clearable at all is refused, on any gate', () => {
+    // The old design let a non-deploy gate declare itself self-clearable; only
+    // deploy was checked. The field is gone rather than constrained, so there is
+    // nothing left to get wrong.
     expectError(
-      mutate((d) => (d.gates.find((g: any) => g.id === 'deploy').self_clearable = true)),
-      'gates[deploy].self_clearable',
-      'never clears its own',
+      mutate((d) => (d.gates.find((g: any) => g.id === 'deploy').self_clearable = false)),
+      'gates[0].self_clearable',
+      'remove it',
+      'every gate is non-self-clearable',
     );
+    const err = expectError(
+      mutate((d) => (d.gates.find((g: any) => g.id === 'migration').self_clearable = true)),
+      'gates[1].self_clearable',
+      'remove it',
+    );
+    // The message has to teach the distinction, or the author just deletes the
+    // gate and loses the approval boundary.
+    expect(err.message).toMatch(/it is a check rather than a gate/i);
   });
 
   test('a deploy gate whose authority is not the user is refused', () => {
@@ -363,14 +381,10 @@ describe('invalid configuration fails with an actionable error', () => {
 describe('the gstack-agent-map CLI', () => {
   const CLI = path.join(ROOT, 'bin', 'gstack-agent-map.ts');
 
-  function run(args: string[], cwd: string) {
-    const proc = Bun.spawnSync(['bun', 'run', CLI, ...args], { cwd, stdout: 'pipe', stderr: 'pipe' });
-    return {
-      code: proc.exitCode,
-      out: new TextDecoder().decode(proc.stdout),
-      err: new TextDecoder().decode(proc.stderr),
-    };
-  }
+  // Routed through the shared runner so the sync spawn carries a finite timeout
+  // in one place: a child that blocks forever wedges the whole shard, because
+  // bun's per-test timeout cannot fire while a synchronous spawn is waiting.
+  const run = (args: string[], cwd: string) => runAgentMapCli(CLI, args, cwd);
 
   function workspaceWith(yaml: string): string {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'icm-cli-'));
@@ -502,7 +516,6 @@ describe('P2 — duplicate gate ids are rejected before the deploy checks', () =
           when: 'a sneaky second definition',
           requires: 'nothing at all',
           authority: 'agent',
-          self_clearable: true,
         }),
       ),
       'gates[2].id',
@@ -514,7 +527,7 @@ describe('P2 — duplicate gate ids are rejected before the deploy checks', () =
 
   test('the duplicate is caught even when the second entry would pass on its own', () => {
     // The danger is silent acceptance, not a malformed entry: a well-formed second
-    // `deploy` carrying self_clearable true previously slipped past find().
+    // `deploy` previously slipped past find() and could contradict the first.
     expectError(
       mutate((d) =>
         d.gates.push({
@@ -522,7 +535,6 @@ describe('P2 — duplicate gate ids are rejected before the deploy checks', () =
           when: 'identical shape, different authority',
           requires: 'explicit user authorization, every time — prior approval never carries forward',
           authority: 'agent',
-          self_clearable: true,
         }),
       ),
       'gates[2].id',
@@ -542,7 +554,7 @@ describe('P2 — duplicate gate ids are rejected before the deploy checks', () =
 
   test('rejection happens during parse, so nothing is ever rendered', () => {
     const bad = mutate((d) =>
-      d.gates.push({ id: 'deploy', when: 'x', requires: 'y', authority: 'agent', self_clearable: true }),
+      d.gates.push({ id: 'deploy', when: 'x', requires: 'y', authority: 'agent' }),
     );
     expect(() => renderAgentMap(bad)).toThrow(RepoMapError);
   });
@@ -700,15 +712,14 @@ describe('the CLI refuses a duplicate deploy gate before writing anything', () =
             when: 'a second definition that would otherwise pass',
             requires: 'explicit user authorization, every time — prior approval never carries forward',
             authority: 'agent',
-            self_clearable: true,
           }),
         ),
       );
 
-      const proc = Bun.spawnSync(['bun', 'run', CLI], { cwd: dir, stdout: 'pipe', stderr: 'pipe' });
-      const err = new TextDecoder().decode(proc.stderr);
+      const proc = runAgentMapCli(CLI, [], dir);
+      const err = proc.err;
 
-      expect(proc.exitCode).toBe(2);
+      expect(proc.code).toBe(2);
       expect(err).toContain('invalid config');
       expect(err).toContain('gates[2].id');
       expect(err).toContain('duplicate gate id');
@@ -718,5 +729,77 @@ describe('the CLI refuses a duplicate deploy gate before writing anything', () =
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('P2 — generated output cannot escape the output directory', () => {
+  const escapes: Array<[string, string]> = [
+    ['parent traversal', '../../README.md'],
+    ['single parent', '../escape.md'],
+    ['nested path', 'sub/agent-map.md'],
+    ['posix absolute', '/etc/agent-map.md'],
+    ['windows absolute', 'C:\\Windows\\agent-map.md'],
+    ['bare dotdot', '..'],
+  ];
+
+  test.each(escapes)('a %s in generated_map.markdown is refused at parse time', (_label, value) => {
+    const err = expectError(
+      mutate((d) => (d.generated_map.markdown = value)),
+      'generated_map.markdown',
+      'must be a bare filename',
+    );
+    expect(err.message).toMatch(/silently overwritten/i);
+    expect(err.message).toMatch(/put the directory in output_dir/i);
+  });
+
+  test.each(escapes)('a %s in generated_map.mermaid is refused at parse time', (_label, value) => {
+    expectError(
+      mutate((d) => (d.generated_map.mermaid = value)),
+      'generated_map.mermaid',
+      'must be a bare filename',
+    );
+  });
+
+  test('an ordinary filename is still accepted', () => {
+    const map = parseRepoMap(mutate((d) => (d.generated_map.markdown = 'context-map.md')));
+    expect(map.generated_map.markdown).toBe('context-map.md');
+  });
+
+  test('no unrelated file is overwritten — the CLI leaves a sentinel untouched', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'icm-escape-'));
+    try {
+      // A file the tool has no business touching, two levels above the output dir.
+      const sentinel = path.join(dir, 'README.md');
+      const original = '# untouched\n';
+      fs.writeFileSync(sentinel, original);
+
+      fs.mkdirSync(path.join(dir, 'agent-work'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'agent-work', 'repo-map.yml'),
+        mutate((d) => (d.generated_map.mermaid = '../../README.md')),
+      );
+
+      const r = runAgentMapCli(path.join(ROOT, 'bin', 'gstack-agent-map.js'), [], dir);
+
+      expect(r.code).toBe(2);
+      expect(r.err).toContain('generated_map.mermaid');
+      // The property that matters, asserted directly rather than inferred from
+      // the exit code: the file on disk is byte-for-byte what it was.
+      expect(fs.readFileSync(sentinel, 'utf-8')).toBe(original);
+      expect(fs.existsSync(path.join(dir, 'agent-work/generated'))).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('the CLI also checks the RESOLVED targets, not just the configured names', () => {
+    // Defence in depth: parse-time validation covers today's config surface, but
+    // --out is a flag and output_dir is configurable, so the claim worth making
+    // is about where bytes actually land. This pins the guard's presence.
+    const cli = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-agent-map.ts'), 'utf-8');
+    expect(cli).toContain('insideOutDir');
+    expect(cli).toMatch(/refusing to write outside the output directory/i);
+    // ...and it runs before the write loop, not after.
+    expect(cli.indexOf('refusing to write outside')).toBeLessThan(cli.indexOf('fs.writeFileSync(file, content)'));
   });
 });

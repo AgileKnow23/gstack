@@ -150,12 +150,15 @@ describe('icm-repo-cartographer repo-map.yml is the only project-specific file',
     expect(Object.keys(markers).sort()).toEqual([...RISK_MARKER_KEYS].sort());
   });
 
-  test('the deploy gate ships mandatory, user-authorized and not self-clearable', () => {
+  test('the deploy gate ships mandatory and user-authorized', () => {
     const gates = parsed.gates as Array<Record<string, unknown>>;
     const deploy = gates.find((g) => g.id === 'deploy');
     expect(deploy).toBeDefined();
-    expect(deploy!.self_clearable).toBe(false);
     expect(deploy!.authority).toBe('user');
+    // The shipped template must not teach a field that fails the parse.
+    for (const gate of gates) expect(Object.keys(gate)).not.toContain('self_clearable');
+    expect(raw).toMatch(/none of them is self-clearable/i);
+    expect(raw).toMatch(/it is a check, not a gate/i);
     expect(String(deploy!.requires)).toMatch(/explicit user authorization/i);
     expect(String(deploy!.requires)).toMatch(/never carries forward/i);
   });
@@ -289,9 +292,24 @@ describe('icm-repo-cartographer SKILL.md.tmpl', () => {
   });
 
   test('names the generator and the check mode', () => {
-    expect(tmpl).toContain('gstack-agent-map.ts');
+    expect(tmpl).toContain('gstack-agent-map.js');
     expect(tmpl).toContain('--check');
     expect(tmpl).toMatch(/Fix the YAML — never the generated file/i);
+  });
+
+  test('invokes the distributable bundle, never the source entry point', () => {
+    // setup copies bin/ and lib/ without node_modules, so the .ts entry point
+    // cannot resolve its parser once installed. Invoking it would reintroduce
+    // exactly the break this skill was found to have.
+    expect(tmpl).not.toMatch(/gstack-agent-map\.ts/);
+    expect(tmpl).toMatch(/Invoke the `\.js`, not the `\.ts`/);
+    expect(tmpl).toMatch(/works with exactly the files setup delivers/i);
+  });
+
+  test('states the output-confinement and gate invariants', () => {
+    expect(tmpl).toMatch(/nothing this tool writes may land outside it/i);
+    expect(tmpl).toMatch(/Every gate is non-self-clearable and there is no field to say otherwise/i);
+    expect(tmpl).toMatch(/it is a check, not a gate/i);
   });
 
   test('never overwrites an entry file without asking', () => {
@@ -302,7 +320,7 @@ describe('icm-repo-cartographer SKILL.md.tmpl', () => {
     const generated = read('SKILL.md');
     expect(generated).toContain('AUTO-GENERATED from SKILL.md.tmpl');
     expect(generated).toContain('## Phase 7 — Walk the workspace cold');
-    expect(generated).toContain('bin/gstack-agent-map.ts');
+    expect(generated).toContain('bin/gstack-agent-map.js');
   });
 });
 
