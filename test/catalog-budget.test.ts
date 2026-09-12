@@ -24,13 +24,20 @@ import { skillCensus } from './helpers/skill-census';
  *           line item, run parseFrontmatter() below and sum
  *           Buffer.byteLength(name) + Buffer.byteLength(description);
  *           token-equivalents = ceil(bytes / 4).
- *   result  53 authored skills = 4,371 bytes (1,093 token-equivalents);
- *           + root router alias 49 bytes = 4,420 bytes total
- *           = 1,105 token-equivalents (measured 2026-08-12)
- * Ceiling is 1,150 token-equivalents (4,600 bytes), so headroom is 180 bytes
- * (~4%). Dominant skill: design-consultation at 229 bytes name+description.
+ *   result  54 authored skills = 4,622 bytes (1,156 token-equivalents);
+ *           + root router alias 49 bytes = 4,671 bytes total
+ *           = 1,168 token-equivalents (measured 2026-09-11)
+ *   moved   /icm-repo-cartographer added 153 bytes (21-byte name + 132-byte
+ *           one-sentence description), which is what took the aggregate past
+ *           the previous 1,150 ceiling. The rest of the drift from the
+ *           2026-08-12 derivation (4,420 -> 4,518 bytes before this skill) is
+ *           existing descriptions growing, not new skills.
+ * Ceiling is 1,200 token-equivalents (4,800 bytes), so headroom is 129 bytes
+ * (~2.7%) — deliberately tighter than the 180 bytes it replaces, because the
+ * catalog is loaded by every host at discovery, every session. Dominant skill:
+ * design-consultation at 229 bytes name+description.
  */
-const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 1_150;
+const CATALOG_BUDGET_TOKEN_EQUIVALENTS = 1_200;
 
 // Largest today: design-consultation at 229 bytes. A description that needs
 // more than 260 bytes is a body paragraph, not a catalog entry.

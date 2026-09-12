@@ -1,0 +1,49 @@
+# {REPO_NAME} — agent entry
+
+{ONE_SENTENCE_WHAT_THIS_REPO_IS_AND_WHAT_SHIPS_OUT_OF_IT}
+
+This repository carries an ICM agent workspace. This file is the catalog: it points
+at everything and stores almost nothing. Read what the task needs, not the whole map.
+
+## Where things live
+
+| Path | What it holds |
+|---|---|
+| `agent-work/repo-map.yml` | **The project's facts, and the canonical source of truth.** Contexts, documents, boundaries, commands, task classes, gates. Read this first, every time. |
+| `agent-work/CONTEXT.md` | The contract for working here: inputs, process, outputs, human check. |
+| `agent-work/_system/skill-routing.md` | How to select a skill, and why not every task gets one. |
+| `agent-work/_templates/task-brief.md` | Copy to start a unit of work. New work is a copy, never a blank page. |
+| `agent-work/generated/agent-map.md` | A rendered picture of the above. **Generated, never authoritative.** |
+
+Project documentation is listed under `sources_of_truth:` in `repo-map.yml`. That
+list is the only place those paths are recorded — do not restate them here.
+
+## Route by what you were asked to do
+
+| If the task is | Go to | Stop at |
+|---|---|---|
+| anything at all, first | `agent-work/repo-map.yml` | — |
+| deciding how much process a change earns | `task_classes:` in `repo-map.yml` | the gate that class names |
+| starting a unit of work | copy `agent-work/_templates/task-brief.md` | a human reads the brief |
+| running something | `commands:` in `repo-map.yml` | — |
+| getting oriented visually | `agent-work/generated/agent-map.md` | re-read the YAML before acting |
+| reporting status | scan git state against `gates:` in `repo-map.yml` | report what is true, not what is hoped |
+
+## The gates
+
+Gates live in `repo-map.yml` under `gates:`. They are not advisory, and an agent
+does not clear its own gate.
+
+**Merging and deploying require explicit authorization from the user, every time.**
+Approval for one release never carries forward to the next.
+
+## The generated map is a view
+
+`agent-work/generated/` is rendered from `repo-map.yml`. If the two disagree, the
+YAML wins and the map is stale — regenerate it, never edit it, and never cite it as
+the reason something is true.
+
+## The one rule
+
+**Route by risk and scope, never by ceremony.** A one-line docs fix earns no
+workflow. A change to tenant isolation does not skip one for being small.

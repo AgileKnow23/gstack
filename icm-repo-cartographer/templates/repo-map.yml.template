@@ -1,0 +1,156 @@
+# repo-map.yml — the sole project-specific configuration source.
+#
+# One reusable engine, one project-specific configuration file. The skill that
+# generated this workspace is identical in every repository; everything that makes
+# THIS repository different lives here. When an agent is wrong about the project,
+# this file is wrong — fix it here rather than arguing with the agent.
+#
+# This file is the canonical source of truth. agent-work/generated/ is rendered
+# FROM it and is never authoritative: if the map and this file disagree, this file
+# wins and the map is stale.
+#
+# Keep it factual. This file records where facts live; it does not restate them.
+# If a sentence here could go stale independently of the thing it describes, it
+# belongs in the document it points at instead.
+
+schema: icm-repo-cartographer/v1
+
+# ─── Identity and stack ──────────────────────────────────────────────────────
+project:
+  name: "{REPO_NAME}"
+  # context-map  — a graph of modules with no fixed run order
+  # pipeline     — a known sequence with a deliverable at the end
+  # composed     — a map whose contexts each carry small pipelines (most repos)
+  form: "{context-map|pipeline|composed}"
+  # No summary here on purpose. "What is this repo and what ships out of it" must
+  # be answerable from the entry file without opening anything else, so that
+  # sentence lives in AGENTS.md and only there. One home per fact.
+  entry: AGENTS.md
+  stack:
+    languages: []
+    runtime: null
+    frameworks: []
+    datastore: null
+    hosting: null
+
+# ─── Source-of-truth documents ───────────────────────────────────────────────
+# Documents that already exist and already answer a question. Ordered: the first
+# is where a cold agent starts. Contexts reference these by id.
+sources_of_truth:
+  - id: "{doc-id}"
+    path: "{PATH/TO/DOC.md}"
+    holds: "{the question this document is the answer to}"
+    read_when: "{the trigger that makes it worth the tokens}"
+
+# ─── Bounded contexts / major modules ────────────────────────────────────────
+# A context is a part of the repo that can be reasoned about on its own. Two
+# contexts touched by one change is the definition of cross-context, which is
+# what the planning route keys off. Fewer, truer contexts beat many speculative
+# ones.
+contexts:
+  - name: "{context-name}"
+    purpose: "{one line: what this part of the repo is responsible for}"
+    paths:
+      - "{src/path/one}"
+    sources_of_truth: []   # ids from the list above
+    depends_on: []         # other context names — these become the map's edges
+    risk: []               # any of the risk_markers keys below
+
+# ─── Boundaries ──────────────────────────────────────────────────────────────
+# allowed: paths an agent may change within the normal routing rules.
+# protected: paths that additionally require the named gate, with the reason.
+boundaries:
+  allowed:
+    - "{src}"
+  protected:
+    - paths:
+        - "{path/that/needs/a/gate}"
+      why: "{what breaks if this changes without review}"
+      gate: "{gate-id}"
+
+# ─── Commands ────────────────────────────────────────────────────────────────
+# The relevant command per intent. Omit or null a key rather than guess — a wrong
+# command costs more than a missing one, because a missing one asks and a wrong
+# one fails confusingly. dev_url is load-bearing: browser QA runs only when a
+# runnable URL exists, and null makes that skip explicit rather than accidental.
+commands:
+  build: null
+  test: null
+  typecheck: null
+  lint: null
+  docs: null
+  deploy: null
+  dev_url: null
+
+# ─── Task classes — the canonical routing table ──────────────────────────────
+# This is the single home for "which skill does this change earn". The prose in
+# _system/skill-routing.md explains how to apply it and does not restate it.
+#
+# skill: null means no mandatory gstack workflow. That is a real answer and the
+# most common one. Selection follows risk and scope, never ceremony.
+task_classes:
+  - id: docs-or-local-config
+    when: documentation or local configuration only, one context, no runtime behaviour change
+    skill: null
+    gate: null
+    note: say in one line why no workflow was needed
+  - id: cross-context-feature
+    when: a feature, architectural change, or new capability spanning two or more contexts
+    skill: /autoplan
+    gate: null
+    note: use /plan-eng-review instead for a single architectural call
+  - id: bug-or-failure
+    when: something is broken, failing, or behaving unexpectedly
+    skill: /investigate
+    gate: null
+    note: investigate before proposing a fix
+  - id: pr-ready-implementation
+    when: code is written and headed for a pull request
+    skill: /review
+    gate: null
+  - id: browser-visible
+    when: user-visible behaviour changed AND commands.dev_url is set
+    skill: /qa
+    gate: null
+    note: /qa-only for a report without code changes; skip entirely when dev_url is null
+  - id: security-sensitive
+    when: authentication, tenant isolation, billing, or an externally reachable surface
+    skill: /cso
+    gate: null
+    note: only when the risk classification requires it, or the user asks in words
+  - id: release
+    when: preparing a release
+    skill: /ship
+    gate: deploy
+    note: /ship may prepare a PR; merging and deploying need explicit user authorization
+
+# ─── Human gates ─────────────────────────────────────────────────────────────
+# Every gate is a HUMAN decision point, and none of them is self-clearable. That
+# is not a setting — there is no self_clearable field, and declaring one is an
+# error. If a step can clear itself automatically it is a check, not a gate:
+# leave it out of this list and let a task class or a command carry it.
+gates:
+  - id: deploy
+    when: any merge to the release branch, deployment, or production configuration change
+    requires: explicit user authorization, every time — prior approval never carries forward
+    authority: user
+
+# ─── Risk markers ────────────────────────────────────────────────────────────
+# Fixed four-key set. Each maps to path fragments or literals that mark a change
+# as carrying that risk. An empty list is a real answer: it says this repository
+# has no such surface.
+risk_markers:
+  auth: []
+  tenant_isolation: []
+  billing: []
+  externally_reachable: []
+
+# ─── Generated map metadata ──────────────────────────────────────────────────
+# Rendered from this file into agent-work/generated/agent-map.{mmd,md}. Those
+# paths are fixed tool policy, not settings: a checked-in config may not choose a
+# destination or a filename, because a mistyped one would overwrite files outside
+# the repository. To render elsewhere for a one-off, pass --out <dir> on the
+# command line. Regenerate after every edit here; never hand-edit the output.
+generated_map:
+  direction: LR
+  source_of_truth: false

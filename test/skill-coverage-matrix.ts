@@ -195,6 +195,19 @@ export const SKILL_COVERAGE: Record<string, SkillCoverage> = {
   skillify: { gate: ['test/skill-e2e-skillify.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   learn: { gate: ['test/skill-e2e-learnings.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
   'plan-tune': { gate: ['test/skill-e2e-plan-tune.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: [] },
+  'icm-repo-cartographer': {
+    gate: [
+      'test/icm-repo-cartographer-scaffold.test.ts',
+      'test/icm-repo-cartographer-walk-test.test.ts',
+      'test/icm-repo-cartographer-map.test.ts',
+      'test/icm-repo-cartographer-install-contract.test.ts',
+      'test/icm-repo-cartographer-output-path.test.ts',
+      'test/skill-coverage-floor.test.ts',
+    ],
+    periodic: [],
+    rationale:
+      'All five dedicated suites are free and hermetic — the walk test materializes a workspace in a temp dir and walks it as a cold agent counting reads, and the map suite renders from a fixture and drives the CLI — so the behavior that actually matters (router under 60 lines, CLAUDE.md a pointer with no duplicated routing, repo-map.yml the only project-specific file, a reproducible map that is never the source of truth, four answers within AGENTS.md + two reads, actionable errors on invalid config, no generated file escaping its output directory) is CI-blocking at no per-run cost. The install-contract suite is the durable one: it materializes each runtime root the way setup does — bin/ and lib/ only, no node_modules, no package.json — and drives the installed CLI from a target repo that has none either, so a dependency added later without being bundled fails here rather than after installation. The output-path suite owns the filesystem boundary: a symlinked target, output directory or intermediate component is refused with lstat and never resolved, proven by a dangling link that existsSync reports as absent, and every case asserts a sentinel outside the workspace comes back byte-identical. Nothing needs an LLM, so there is no periodic tier.',
+  },
 
   // ─── iOS family ─────────────────────────────────────────────
   'ios-qa': { gate: ['test/skill-e2e-ios.test.ts', 'test/skill-coverage-floor.test.ts'], periodic: ['test/skill-e2e-ios-device.test.ts', 'test/skill-e2e-ios-swift-build.test.ts'] },
