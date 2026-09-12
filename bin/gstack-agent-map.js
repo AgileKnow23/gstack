@@ -6907,8 +6907,8 @@ var require_public_api = __commonJS((exports) => {
 });
 
 // bin/gstack-agent-map.ts
-import * as fs from "fs";
-import * as path from "path";
+import * as fs2 from "fs";
+import * as path2 from "path";
 
 // node_modules/yaml/dist/index.js
 var composer = require_composer();
@@ -7240,6 +7240,12 @@ function parseRepoMap(text) {
     }
     return value;
   };
+  const mermaidName = outputName("mermaid");
+  const markdownName = outputName("markdown");
+  if (mermaidName.toLowerCase() === markdownName.toLowerCase()) {
+    const identical = mermaidName === markdownName;
+    fail("generated_map.mermaid", `"${mermaidName}" and generated_map.markdown "${markdownName}" ` + (identical ? "are the same filename." : "differ only in case, which is the same file on Windows and macOS.") + ` Each artifact needs its own filename — the Mermaid source and the readable map are two ` + `separate files, and sharing a name means one silently overwrites the other and --check can ` + `never pass. Give generated_map.mermaid and generated_map.markdown distinct names.`);
+  }
   const direction = requireString(gm.direction, "generated_map.direction", "A Mermaid direction such as LR or TD.");
   if (!["LR", "RL", "TD", "TB", "BT"].includes(direction)) {
     fail("generated_map.direction", `"${direction}" is not a Mermaid direction. Use LR, RL, TD, TB or BT.`);
@@ -7261,8 +7267,8 @@ function parseRepoMap(text) {
     risk_markers: riskMarkers,
     generated_map: {
       output_dir: requireString(gm.output_dir, "generated_map.output_dir", "Where the rendered files go."),
-      mermaid: outputName("mermaid"),
-      markdown: outputName("markdown"),
+      mermaid: mermaidName,
+      markdown: markdownName,
       direction,
       source_of_truth: false
     }
@@ -7477,6 +7483,101 @@ function renderMarkdown(map, mermaid) {
 `);
 }
 
+// lib/agent-map-output.ts
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+class OutputPathError extends Error {
+  field;
+  offendingPath;
+  constructor(field, offendingPath, message) {
+    super(message);
+    this.field = field;
+    this.offendingPath = offendingPath;
+    this.name = "OutputPathError";
+  }
+}
+function componentsBelow(root, target) {
+  const rootResolved = path.resolve(root);
+  const targetResolved = path.resolve(target);
+  const rel = path.relative(rootResolved, targetResolved);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+    const chain2 = [];
+    let current2 = targetResolved;
+    for (;; ) {
+      chain2.unshift(current2);
+      const parent = path.dirname(current2);
+      if (parent === current2)
+        break;
+      current2 = parent;
+    }
+    return chain2.slice(1);
+  }
+  const segments = rel.split(path.sep).filter((s) => s !== "");
+  const chain = [];
+  let current = rootResolved;
+  for (const segment of segments) {
+    current = path.join(current, segment);
+    chain.push(current);
+  }
+  return chain;
+}
+function assertNoSymlinkOnPath(root, target, field) {
+  for (const component of componentsBelow(root, target)) {
+    let info;
+    try {
+      info = fs.lstatSync(component);
+    } catch {
+      continue;
+    }
+    if (info.isSymbolicLink()) {
+      throw new OutputPathError(field, component, `refusing to use a symlinked path component
+  ${component}
+` + `  This component is a symbolic link, and generation would read or write through it to ` + `somewhere outside the output directory. Replace it with a real directory or file, or point ` + `${field} somewhere that is not linked. The link target was deliberately not resolved.`);
+    }
+  }
+}
+function resolveOutputPlan(opts) {
+  const outDir = path.resolve(opts.outDir);
+  const targets = [
+    { key: "mermaid", field: "generated_map.mermaid", file: path.join(outDir, opts.mermaid) },
+    { key: "markdown", field: "generated_map.markdown", file: path.join(outDir, opts.markdown) }
+  ];
+  for (const target of targets) {
+    const rel = path.relative(outDir, path.resolve(target.file));
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      throw new OutputPathError(target.field, target.file, `refusing to write outside the output directory
+  ${target.file}
+` + `  Output directory: ${outDir}
+  Every generated file must land inside it.`);
+    }
+  }
+  for (const target of targets) {
+    assertNoSymlinkOnPath(opts.root, target.file, target.field);
+  }
+  return { outDir, targets };
+}
+function writeGeneratedFile(file, content) {
+  const dir = path.dirname(file);
+  const tmp = path.join(dir, `.${path.basename(file)}.tmp-${process.pid}`);
+  let handle;
+  try {
+    handle = fs.openSync(tmp, "wx");
+    fs.writeFileSync(handle, content);
+  } finally {
+    if (handle !== undefined)
+      fs.closeSync(handle);
+  }
+  try {
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {}
+    throw err;
+  }
+}
+
 // bin/gstack-agent-map.ts
 var argv = process.argv.slice(2);
 function flag(name) {
@@ -7490,10 +7591,10 @@ function flag(name) {
   }
   return value;
 }
-var configPath = path.resolve(flag("--config") ?? "agent-work/repo-map.yml");
+var configPath = path2.resolve(flag("--config") ?? "agent-work/repo-map.yml");
 var checkOnly = argv.includes("--check");
 var toStdout = argv.includes("--stdout");
-if (!fs.existsSync(configPath)) {
+if (!fs2.existsSync(configPath)) {
   console.error(`gstack-agent-map: no config at ${configPath}
 ` + `  Run /icm-repo-cartographer to scaffold the workspace, or pass --config <path>.`);
   process.exit(1);
@@ -7502,12 +7603,14 @@ var rendered;
 var outDir;
 var mermaidName;
 var markdownName;
+var repoRoot;
 try {
-  const text = fs.readFileSync(configPath, "utf-8");
+  const text = fs2.readFileSync(configPath, "utf-8");
   const map = parseRepoMap(text);
   const mermaid = renderMermaid(map);
   rendered = { mermaid, markdown: renderMarkdown(map, mermaid) };
-  outDir = path.resolve(flag("--out") ?? path.join(path.dirname(path.dirname(configPath)), map.generated_map.output_dir));
+  repoRoot = path2.dirname(path2.dirname(configPath));
+  outDir = path2.resolve(flag("--out") ?? path2.join(repoRoot, map.generated_map.output_dir));
   mermaidName = map.generated_map.mermaid;
   markdownName = map.generated_map.markdown;
 } catch (err) {
@@ -7523,43 +7626,40 @@ if (toStdout) {
   process.stdout.write(rendered.mermaid);
   process.exit(0);
 }
-function insideOutDir(target) {
-  const root = path.resolve(outDir);
-  const resolved = path.resolve(target);
-  const rel = path.relative(root, resolved);
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+var plan;
+try {
+  plan = resolveOutputPlan({ root: repoRoot, outDir, mermaid: mermaidName, markdown: markdownName });
+} catch (err) {
+  if (err instanceof OutputPathError) {
+    console.error(`gstack-agent-map: invalid config
+  ${err.field} \u2014 ${err.message}
+  File: ${configPath}`);
+    process.exit(2);
+  }
+  throw err;
 }
 var targets = [
-  [path.join(outDir, mermaidName), rendered.mermaid],
-  [path.join(outDir, markdownName), rendered.markdown]
+  [plan.targets[0].file, rendered.mermaid],
+  [plan.targets[1].file, rendered.markdown]
 ];
-var escaping = targets.filter(([file]) => !insideOutDir(file));
-if (escaping.length > 0) {
-  console.error(`gstack-agent-map: refusing to write outside the output directory
-` + escaping.map(([f]) => `  ${f}`).join(`
-`) + `
-  Output directory: ${path.resolve(outDir)}
-` + `  Every generated file must land inside it. Fix generated_map in ${configPath}, or pass a --out inside it.`);
-  process.exit(2);
-}
 if (checkOnly) {
   const drifted = targets.filter(([file, want]) => {
-    if (!fs.existsSync(file))
+    if (!fs2.existsSync(file))
       return true;
-    return fs.readFileSync(file, "utf-8") !== want;
+    return fs2.readFileSync(file, "utf-8") !== want;
   });
   if (drifted.length > 0) {
     console.error(`gstack-agent-map: generated map is stale
-` + drifted.map(([f]) => `  ${path.relative(process.cwd(), f)}`).join(`
+` + drifted.map(([f]) => `  ${path2.relative(process.cwd(), f)}`).join(`
 `) + `
-  Regenerate: bun run bin/gstack-agent-map.ts --config ${path.relative(process.cwd(), configPath)}`);
+  Regenerate: bun run bin/gstack-agent-map.ts --config ${path2.relative(process.cwd(), configPath)}`);
     process.exit(1);
   }
   console.log("gstack-agent-map: generated map matches the config");
   process.exit(0);
 }
-fs.mkdirSync(outDir, { recursive: true });
+fs2.mkdirSync(plan.outDir, { recursive: true });
 for (const [file, content] of targets) {
-  fs.writeFileSync(file, content);
-  console.log(`WROTE ${path.relative(process.cwd(), file)}`);
+  writeGeneratedFile(file, content);
+  console.log(`WROTE ${path2.relative(process.cwd(), file)}`);
 }

@@ -792,14 +792,21 @@ describe('P2 — generated output cannot escape the output directory', () => {
     }
   });
 
-  test('the CLI also checks the RESOLVED targets, not just the configured names', () => {
+  test('the CLI routes both modes through the central output resolver', () => {
     // Defence in depth: parse-time validation covers today's config surface, but
     // --out is a flag and output_dir is configurable, so the claim worth making
-    // is about where bytes actually land. This pins the guard's presence.
+    // is about where bytes actually land. The lexical check plus the filesystem
+    // component walk now live in one place; this pins that the CLI uses it, and
+    // uses it before it reads for --check or writes anything.
     const cli = fs.readFileSync(path.join(ROOT, 'bin', 'gstack-agent-map.ts'), 'utf-8');
-    expect(cli).toContain('insideOutDir');
-    expect(cli).toMatch(/refusing to write outside the output directory/i);
-    // ...and it runs before the write loop, not after.
-    expect(cli.indexOf('refusing to write outside')).toBeLessThan(cli.indexOf('fs.writeFileSync(file, content)'));
+    expect(cli).toContain('resolveOutputPlan');
+    expect(cli).toContain('writeGeneratedFile');
+
+    const resolved = cli.indexOf('resolveOutputPlan({');
+    expect(resolved).toBeGreaterThan(-1);
+    expect(resolved, 'resolution must precede the --check read').toBeLessThan(cli.indexOf('if (checkOnly)'));
+    expect(resolved, 'resolution must precede the write loop').toBeLessThan(cli.indexOf('writeGeneratedFile(file, content)'));
+    // The raw write is gone: nothing may bypass the no-follow write helper.
+    expect(cli).not.toContain('fs.writeFileSync(file, content)');
   });
 });

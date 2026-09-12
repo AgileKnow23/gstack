@@ -37,7 +37,11 @@ const OUT = path.join(ROOT, 'bin', 'gstack-agent-map.js');
 const MANIFEST = path.join(ROOT, 'bin', 'gstack-agent-map.build.json');
 
 /** Everything whose content can change what the bundle does. */
-export const BUNDLE_SOURCES = ['bin/gstack-agent-map.ts', 'lib/agent-map.ts'];
+export const BUNDLE_SOURCES = [
+  'bin/gstack-agent-map.ts',
+  'lib/agent-map.ts',
+  'lib/agent-map-output.ts',
+];
 
 export function sourceHashes(root = ROOT): Record<string, string> {
   const out: Record<string, string> = {};

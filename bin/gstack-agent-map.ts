@@ -18,6 +18,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { parseRepoMap, renderMermaid, renderMarkdown, RepoMapError } from '../lib/agent-map';
+import { resolveOutputPlan, writeGeneratedFile, OutputPathError } from '../lib/agent-map-output';
 
 const argv = process.argv.slice(2);
 
@@ -48,13 +49,16 @@ let rendered: { mermaid: string; markdown: string };
 let outDir: string;
 let mermaidName: string;
 let markdownName: string;
+/** The repository being mapped: the directory that contains agent-work/. */
+let repoRoot: string;
 
 try {
   const text = fs.readFileSync(configPath, 'utf-8');
   const map = parseRepoMap(text);
   const mermaid = renderMermaid(map);
   rendered = { mermaid, markdown: renderMarkdown(map, mermaid) };
-  outDir = path.resolve(flag('--out') ?? path.join(path.dirname(path.dirname(configPath)), map.generated_map.output_dir));
+  repoRoot = path.dirname(path.dirname(configPath));
+  outDir = path.resolve(flag('--out') ?? path.join(repoRoot, map.generated_map.output_dir));
   mermaidName = map.generated_map.mermaid;
   markdownName = map.generated_map.markdown;
 } catch (err) {
@@ -72,34 +76,32 @@ if (toStdout) {
 }
 
 /**
- * Output confinement, part two. parseRepoMap already refuses a filename that is
- * a path, but --out is a flag and output_dir is config, so the only claim worth
- * making is about the RESOLVED targets: every file this tool writes lands inside
- * the resolved output directory. Checked here, before a single byte is written,
- * because the failure mode is overwriting a file nobody asked us to touch.
+ * One boundary for both modes. resolveOutputPlan does the lexical containment
+ * check AND walks every existing filesystem component below the repository root —
+ * agent-work, the output directory, the target parents, the targets — rejecting a
+ * symlink anywhere along the way with `lstat` and never resolving it.
+ *
+ * It runs BEFORE --check reads a file and before normal mode writes one, because
+ * a symlinked target is as dangerous to read through as to write through: a check
+ * that follows the link reports "matches" about a file somewhere else entirely.
  */
-function insideOutDir(target: string): boolean {
-  const root = path.resolve(outDir);
-  const resolved = path.resolve(target);
-  const rel = path.relative(root, resolved);
-  return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+let plan: ReturnType<typeof resolveOutputPlan>;
+try {
+  plan = resolveOutputPlan({ root: repoRoot, outDir, mermaid: mermaidName, markdown: markdownName });
+} catch (err) {
+  if (err instanceof OutputPathError) {
+    console.error(
+      `gstack-agent-map: invalid config\n  ${err.field} — ${err.message}\n  File: ${configPath}`,
+    );
+    process.exit(2);
+  }
+  throw err;
 }
 
 const targets: Array<[string, string]> = [
-  [path.join(outDir, mermaidName), rendered.mermaid],
-  [path.join(outDir, markdownName), rendered.markdown],
+  [plan.targets[0].file, rendered.mermaid],
+  [plan.targets[1].file, rendered.markdown],
 ];
-
-const escaping = targets.filter(([file]) => !insideOutDir(file));
-if (escaping.length > 0) {
-  console.error(
-    `gstack-agent-map: refusing to write outside the output directory\n` +
-      escaping.map(([f]) => `  ${f}`).join('\n') +
-      `\n  Output directory: ${path.resolve(outDir)}\n` +
-      `  Every generated file must land inside it. Fix generated_map in ${configPath}, or pass a --out inside it.`,
-  );
-  process.exit(2);
-}
 
 if (checkOnly) {
   const drifted = targets.filter(([file, want]) => {
@@ -118,8 +120,11 @@ if (checkOnly) {
   process.exit(0);
 }
 
-fs.mkdirSync(outDir, { recursive: true });
+fs.mkdirSync(plan.outDir, { recursive: true });
 for (const [file, content] of targets) {
-  fs.writeFileSync(file, content);
+  // Temp regular file inside the verified directory, then an atomic rename. The
+  // rename replaces the directory entry itself, so even an entry that appeared
+  // after validation is replaced rather than written through.
+  writeGeneratedFile(file, content);
   console.log(`WROTE ${path.relative(process.cwd(), file)}`);
 }

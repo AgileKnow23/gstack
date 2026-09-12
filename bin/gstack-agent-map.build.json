@@ -3,8 +3,9 @@
   "entry": "bin/gstack-agent-map.ts",
   "output": "bin/gstack-agent-map.js",
   "sources": {
-    "bin/gstack-agent-map.ts": "ac76b2104d5366871e8d591e967607e744799ba27f577cbc223e99c4bd692110",
-    "lib/agent-map.ts": "9c91e889528ffd945a149b2f416b229c6e3c592138a805a361149f3bb1c64467"
+    "bin/gstack-agent-map.ts": "a782c44cc1cf2126a22fb49d265fd9ecf5a3b82edc5c20b2ef73cc1ded9eaba5",
+    "lib/agent-map.ts": "d54bc6aceb432efe825ad9d51f0621d8c1abec3cd88bd06be17292e24a1115de",
+    "lib/agent-map-output.ts": "7e6939d2f3942d1d71866cc29fc742bfe3f6e812ad26b1f464b818740b6f2791"
   },
   "bundled_dependencies": {
     "yaml": "2.8.1"

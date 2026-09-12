@@ -475,6 +475,27 @@ export function parseRepoMap(text: string): RepoMap {
     return value;
   };
 
+  // Two artifacts, two files. Given the same name both targets resolve to one
+  // path: a run reports success twice, the second write overwrites the first, and
+  // every later --check reports drift forever because it compares one file
+  // against two different expected contents. Case-insensitively too — gstack
+  // supports Windows, where agent-map.md and AGENT-MAP.MD are the same file.
+  const mermaidName = outputName('mermaid');
+  const markdownName = outputName('markdown');
+  if (mermaidName.toLowerCase() === markdownName.toLowerCase()) {
+    const identical = mermaidName === markdownName;
+    fail(
+      'generated_map.mermaid',
+      `"${mermaidName}" and generated_map.markdown "${markdownName}" ` +
+        (identical
+          ? 'are the same filename.'
+          : 'differ only in case, which is the same file on Windows and macOS.') +
+        ` Each artifact needs its own filename — the Mermaid source and the readable map are two ` +
+        `separate files, and sharing a name means one silently overwrites the other and --check can ` +
+        `never pass. Give generated_map.mermaid and generated_map.markdown distinct names.`,
+    );
+  }
+
   const direction = requireString(gm.direction, 'generated_map.direction', 'A Mermaid direction such as LR or TD.');
   if (!['LR', 'RL', 'TD', 'TB', 'BT'].includes(direction)) {
     fail('generated_map.direction', `"${direction}" is not a Mermaid direction. Use LR, RL, TD, TB or BT.`);
@@ -497,8 +518,8 @@ export function parseRepoMap(text: string): RepoMap {
     risk_markers: riskMarkers,
     generated_map: {
       output_dir: requireString(gm.output_dir, 'generated_map.output_dir', 'Where the rendered files go.'),
-      mermaid: outputName('mermaid'),
-      markdown: outputName('markdown'),
+      mermaid: mermaidName,
+      markdown: markdownName,
       direction,
       source_of_truth: false,
     },
